@@ -1,0 +1,6 @@
+# GMT 6 Session common arguments shelf
+BEGIN GMT 6.4.0
+J	+
+J+	+EPSG:4326
+@L	1
+END
