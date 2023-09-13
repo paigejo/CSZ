@@ -89,7 +89,7 @@ discretizeSlab2 = function(n=2000, max.n=-1, max.edge=c(15, 100), maxDepth=30, .
   }
   
   faultGeom = getGeomFromMesh(mesh, extent=hullInt$loc, maxDepth=maxDepth)
-  
+  browser()
   faultGeom
 }
 
@@ -137,7 +137,7 @@ getGeomFromMesh = function(mesh, extent, maxDepth=30) {
   # determine which triangles are in the fault extent
   internalI = fields::in.poly(centers, extent)
   internalCenters = centers[internalI,]
-  externalCetners = centers[!internalI,]
+  externalCenters = centers[!internalI,]
   internalTriCorners = list()
   externalTriCorners = list()
   for(i in 1:nrow(centers)) {
@@ -148,8 +148,6 @@ getGeomFromMesh = function(mesh, extent, maxDepth=30) {
       externalTriCorners = c(externalTriCorners, list(thisTriCorners))
     }
   }
-  
-  browser()
   
   list(centers=internalCenters, corners=internalTriCorners, 
        externalTriangulation=list(centers=externalCenters, corners=externalTriCorners))
