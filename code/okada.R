@@ -17,7 +17,7 @@ meshgrid = function(x, y, transpose=FALSE) {
 # Rectangles ----
 
 okadaRect = function(rows, x, y, slips=rep(0, nrow(rows)), rakes=rep(90, nrow(rows)), 
-                 poisson=0.25, inds=NULL) {
+                     poisson=0.25, inds=NULL) {
   # allow user to send a constant for slips and rakes instead of vector for ease of use
   if(length(slips) == 1)
     slips = rep(slips, nrow(rows))
@@ -35,7 +35,7 @@ okadaRect = function(rows, x, y, slips=rep(0, nrow(rows)), rakes=rep(90, nrow(ro
 # with a decomposition of the seaDef at each data location induced by the slip 
 # at each subfault (G matrix from model)
 okadaAllRect = function(rows, lonGrid, latGrid, datCoords, slips=rep(0, nrow(rows)), rakes=rep(90, nrow(rows)), 
-                    poisson=0.25) {
+                        poisson=0.25) {
   # allow user to send a constant for slips and rakes instead of vector for ease of use
   if(length(slips) == 1)
     slips = rep(slips, nrow(rows))
@@ -211,8 +211,8 @@ strike_slip = function(y1, y2, ang_dip, q, poisson=0.25) {
   sn = sin(ang_dip)
   cs = cos(ang_dip)
   d_bar = y2*sn - q*cs
-  r = sqrt(y1**2 + y2**2 + q**2)
-  xx = sqrt(y1**2 + q**2)
+  r = sqrt(y1^2 + y2^2 + q^2)
+  xx = sqrt(y1^2 + q^2)
   a4 = 2.0*poisson/cs*(log(r+d_bar) - sn*log(r+y2))
   # rewritten to use multiplication instead of division when possible (faster)
   # f = -(d_bar*q/r/(r+y2) + q*sn/(r+y2) + a4*sn)/(2.0*pi)
@@ -229,8 +229,8 @@ dip_slip = function(y1, y2, ang_dip, q, poisson=0.25) {
   cs = cos(ang_dip)
   
   d_bar = y2*sn - q*cs;
-  r = sqrt(y1**2 + y2**2 + q**2)
-  xx = sqrt(y1**2 + q**2)
+  r = sqrt(y1^2 + y2^2 + q^2)
+  xx = sqrt(y1^2 + q^2)
   #   a5 = 4.*poisson/cs*atan((y2*(xx+q*cs)+xx*(r+xx)*sn)/y1/(r+xx)/cs)
   #   f = -(d_bar*q/r/(r+y1) + sn*atan(y1*y2/q/r) - a5*sn*cs)/(2.0*pi)
   # rewritten to use multiplication instead of division when possible (faster)
@@ -242,8 +242,506 @@ dip_slip = function(y1, y2, ang_dip, q, poisson=0.25) {
 
 # Triangles ----
 
+# Apply Okada to this subfault and return a DTopography object.
+# 
+# :Input:
+#   - x,y are 1d arrays
+# :Output:
+#   - DTopography object with dZ array of shape (1,len(x),len(y))
+# with single static displacement and times = [0.].
+# 
+# Currently only calculates the vertical displacement.
+# 
+# Okada model is a mapping from several fault parameters
+# to a surface deformation.
+# See Okada 1985 [Okada85]_, or Okada 1992, Bull. Seism. Soc. Am.
+# 
+# okadamap function riginally written in Python by Dave George for
+# Clawpack 4.6 okada.py routine, with some routines adapted
+# from fortran routines written by Xiaoming Wang.
+# 
+# Rewritten and made more flexible by Randy LeVeque
+# 
+# **Note:** *self.coordinate_specification* (str) specifies the location on 
+# each subfault that corresponds to the (longitude,latitude) and depth 
+# subfault.
+# 
+# See the documentation for *SubFault.calculate_geometry* for dicussion of the 
+# possible values *self.coordinate_specification* can take.
+okadaTri = function(fault, x, y) {
+  
+}
 
+okadaSubfaultTri = function(subfault, x, y) {
+  
+  out = meshgrid(x, y)   # uppercase
+  X1 = out$X
+  X2 = out$Y
+  # X3 = numpy.zeros(X1.shape)   # depth zero
+  X3 = matrix(0, nrow=nrow(X1), ncol=ncol(X1))   # depth zero
+  
+  # compute burgers vector
+  slipv = get_unit_slip_vector(subfault) 
+  burgersv = slipv * subfault$slip
+  
+  # get beta angles
+  # out = self._get_leg_angles()
+  out = get_leg_angles(subfault)
+  reverse_list = out$reverse_list
+  O1_list = out$O1_list
+  O2_list = out$O2_list
+  alpha_list = out$alpha_list
+  beta_list = out$beta_list
+  
+  #
+  v11 = numpy.zeros(X1.shape)
+  v21 = numpy.zeros(X1.shape)
+  v31 = numpy.zeros(X1.shape)
+  
+  v12 = numpy.zeros(X1.shape)
+  v22 = numpy.zeros(X1.shape)
+  v32 = numpy.zeros(X1.shape)
+  
+  v13 = numpy.zeros(X1.shape)
+  v23 = numpy.zeros(X1.shape)
+  v33 = numpy.zeros(X1.shape)
+  
+  for(j in range(6)) {
+    # k = j%3
+    k = j%%3
+    alpha = alpha_list[k]
+    beta = beta_list[k]
+    
+    if (floor(j/3) == 0) {
+      Olong = O1_list[k][0]
+      Olat = O1_list[k][1]
+      Odepth = abs(O1_list[k][2])
+    } else if (floor(j/3) == 1) {
+      Olong = O2_list[k][0]
+      Olat = O2_list[k][1]
+      Odepth = abs(O2_list[k][2])
+    }
+    
+    if(reverse_list[k]) {
+      sgn = (-1.)^(floor(j/3))
+    } else {
+      sgn = (-1.)^floor(j/3+1)
+    }
+    
+    # fix orientation 
+    if(self._fix_orientation) {
+      sgn *= -1
+    }
+    
+    Y1,Y2,Y3,Z1,Z2,Z3,Yb1,Yb2,Yb3,Zb1,Zb2,Zb3 = 
+      self._get_halfspace_coords(X1,X2,X3,alpha,beta,Olong,Olat,Odepth)
+    
+    w11,w12,w13,w21,w22,w23,w31,w32,w33 = 
+      self._get_angular_dislocations_surface(Y1,Y2,Y3,beta,Odepth)
+    
+    w11,w12,w13,w21,w22,w23,w31,w32,w33 = 
+      self._coord_transform(w11,w12,w13,w21,w22,w23,w31,w32,w33,alpha)
+    
+    v11 += sgn*w11
+    v21 += sgn*w21
+    v31 += sgn*w31
+    
+    v12 += sgn*w12
+    v22 += sgn*w22
+    v32 += sgn*w32
+    
+    v13 += sgn*w13
+    v23 += sgn*w23
+    v33 += sgn*w33
+  }
+  
+  # linear combination for each component of Burgers vectors
+  dX = -v11*burgersv[0] - v12*burgersv[1] + v13*burgersv[2]
+  dY = -v21*burgersv[0] - v22*burgersv[1] + v23*burgersv[2]
+  dZ = -v31*burgersv[0] - v32*burgersv[1] + v33*burgersv[2]
+  
+  dtopo = DTopography()
+  dtopo.X = X1
+  dtopo.Y = X2
+  dtopo.dX = numpy.array(dX, ndmin=3)
+  dtopo.dY = numpy.array(dY, ndmin=3)
+  dtopo.dZ = numpy.array(dZ, ndmin=3)
+  dtopo.times = [0.]
+  self.dtopo = dtopo
+  
+  return dtopo
+  
+}
 
+# compute beta in radians
+# (the angle between vertical depth axis and 
+#   the tangent vector of side of the triangular subfault)
+# 
+# ordering: x2-x1, x3-x2, x1-x3
+# 
+# requires self.corners to have been computed.
+get_leg_angles = function(subfault) {
+  
+  # TODO: put in a coordinate_specification == 'triangular' check here
+  x = numpy.array(self.corners)
+  y = numpy.zeros(x.shape)
+  
+  # convert to meters
+  DEG2RAD = 2*pi/360
+  LAT2METER = 111133.84012073894 #/10^3
+  # y[:,0] = LAT2METER * cos( DEG2RAD*self.latitude )*x[:,0]
+  # y[:,1] = LAT2METER * x[:,1]
+  # y[:,2] = - abs(x[:,2])    # force sign
+  y[,1] = LAT2METER * cos( DEG2RAD*subfault$lat)*x[,1]
+  y[,2] = LAT2METER * x[,2]
+  y[,3] = - abs(x[,3])    # force sign
+  
+  # v_list = [y[0,:] - y[1,:], y[1,:] - y[2,:], y[2,:] - y[0,:]]
+  v_list = c(y[1,] - y[2,], y[2,] - y[3,], y[3,] - y[1,])
+  
+  # e3 = numpy.array([0.,0.,-1.])
+  e3 = c(0,0,-1)
+  
+  # O1_list = []
+  # O2_list = []
+  # alpha_list = []
+  # beta_list = []
+  # reverse_list = [FALSE,FALSE,FALSE]
+  O1_list = list()
+  O2_list = list()
+  alpha_list = list()
+  beta_list = list()
+  reverse_list = [FALSE,FALSE,FALSE]
+  
+  j = 0
+  for(v in v_list) {
+    # vn = v/numpy.linalg.norm(v)
+    vn = v/norm(v)
+    k = j
+    # l = (j+1)%3
+    l = (j+1)%%3
+    # if(vn[2] > 0) {
+    if(vn[3] > 0) {
+      vn = -vn    # point vn in depth direction
+      # k = (j+1)%3
+      k = ((j+1)%%3) + 1
+      l = j
+      reverse_list[j] = TRUE
+    }
+    
+    # O1_list.append(x[k,:].copy())  # set origin for the vector v
+    # O2_list.append(x[l,:].copy())  # set dest.  for the vector v
+    O1_list = c(O1_list, list(x[k,]))  # set origin for the vector v
+    O2_list = c(O2_list, list(x[l+1,]))  # set dest.  for the vector v
+    
+    browser()
+    # alpha = numpy.arctan2(vn[0],vn[1])
+    alpha = arctan(vn[1],vn[2])
+    alpha_list = c(alpha_list, list(alpha))
+    
+    # beta = numpy.pi/2 - 
+    #   arctan(abs(vn[2]) / abs(numpy.sqrt(vn[0]**2 + vn[1]**2)))
+    beta = pi/2 - 
+      arctan(abs(vn[3]) / abs(sqrt(vn[1]^2 + vn[2]^2)))
+    beta_list = c(beta_list, list(beta))
+    
+    j = j+1
+  }
+  
+  list(reverse_list,O1_list,O2_list,alpha_list,beta_list)
+}
+
+# compute angular dislocations at the *free surface* of the half space, 
+# according to the paper
+# 
+# M. Comninou and J. Dundurs 
+# Journal of Elasticity, Vol. 5, Nos.3-4, Nov 1975
+# 
+# The specific equations used in the papers are (1-29). 
+# 
+# :Input:
+#   -  Y1, Y2, Y3
+# Z1, Z2, Z3
+# Yb1,Yb2,Yb3
+# Zb1,Zb2,Zb3   : coordinates in meters
+# 
+# :Output:
+#   - v11,v12,v13
+# v21,v22,v23
+# v31,v32,v33   : dislocation vectors
+# 
+# 
+# For a more recent reference with comprehensive review see:
+#   
+#   Brendan J. Meade
+# Computers & Geosciences, Vol. 33, Issue 8, pp 1064-1075
+get_angular_dislocations_surface = function(self,Y1,Y2,Y3,beta,Odepth) {
+  
+  a = abs(Odepth)   #lazy
+  
+  nu = 0.25        # .5 * lambda / (lambda + mu) poisson ratio
+  
+  C = (2*pi)
+  
+  Z1 = cos(beta)*Y1 + a*sin(beta)
+  Z3 = sin(beta)*Y1 - a*cos(beta)
+  R = sqrt(Y1^2 + Y2^2 + a^2)
+  
+  F =  - atan(Y2,Y1) + atan(Y2*R*sin(beta),Y1*Z1 + Y2^2*cos(beta)) + atan(Y2,Z1) 
+  
+  # Burgers vector (1,0,0)
+  
+  v11 = 1/C*((1 - (1 - 2*nu)/(tan(beta)^2))*F + Y2/(R + a)*
+               ((1 - 2*nu)*(1/tan(beta) + Y1/(2*(R + a))) - Y1/R) - 
+               (Y2/R)*((R*sin(beta) - Y1)*cos(beta)/(R - Z3)))
+  
+  v21 = 1/C*((1 - 2*nu)*((.5 + 1/(tan(beta)^2))*log(R + a) - 
+                           1/tan(beta)/sin(beta)*log(R - Z3)) - 
+               1/(R + a)*((1 - 2*nu)*(Y1/tan(beta) - .5*a - (Y2/(2*(R + a)))*Y2)) - 
+               (Y2/R)*(Y2/(R+a)) + (Y2/R)*cos(beta)*(Y2/(R - Z3)))
+  
+  v31 = 1/C*((1 - 2*nu)*F/tan(beta) + Y2/(R + a)*(2*nu + a/R) - 
+               (Y2/(R - Z3))*cos(beta)*(cos(beta) + a/R))
+  
+  # Burgers vector (0,1,0)
+  
+  v12 = 1/C*(-(1 - 2*nu)*((.5 - 1/(tan(beta)^2))*log(R + a) + 
+                            cos(beta)/(tan(beta)^2)*log(R - Z3)) - 
+               1/(R + a)*((1 - 2*nu)*(Y1/tan(beta) + .5*a + (Y1/(2*(R+a)))*Y1) - 
+                            (Y1/R)*Y1) + (Z1/R)*((R*sin(beta) - Y1)/(R - Z3)))
+  
+  v22 = 1/C*((1 + (1 - 2*nu)/(tan(beta)^2))*F - Y2/(R + a)*
+               ((1 - 2*nu)*(1/tan(beta) + Y1/(2*(R+a))) - Y1/R) - 
+               (Y2/R)*(Z1/(R - Z3)))
+  
+  v32 = 1/C*(-(1 - 2*nu)/tan(beta)*(log(R + a) - cos(beta)*log(R - Z3)) - 
+               Y1/(R + a)*(2*nu + a/R) + Z1/(R - Z3)*(cos(beta) + a/R))
+  
+  # Burgers vectors (0,0,1)
+  
+  v13 = 1/C*(Y2*(R*sin(beta) - Y1)*sin(beta)/(R*(R-Z3)))
+  v23 = 1/C*(-Y2^2*sin(beta))/(R*(R - Z3))
+  v33 = 1/C*(F + Y2*(R*cos(beta) + a)*sin(beta)/(R*(R - Z3)))
+  
+  
+  list(v11,v12,v13,v21,v22,v23,v31,v32,v33)
+}
+
+# compute a unit vector in the slip-direction (rake-direction)
+# for a triangular fault
+get_unit_slip_vector = function(subfault) {
+  DEG2RAD = 2*pi/360
+  # strike = numpy.deg2rad(self.strike)
+  # dip = numpy.deg2rad(self.dip)
+  # rake = numpy.deg2rad(self.rake)
+  strike = DEG2RAD * subfault$strike
+  dip = DEG2RAD * subfault$dip
+  rake = DEG2RAD * subfault$rake
+  
+  e1 = numpy.array([1.,0.,0.])
+  e2 = numpy.array([0.,1.,0.])
+  e3 = numpy.array([0.,0.,-1.])
+  
+  u = sin(strike)*e1 + cos(strike)*e2
+  v = cos(strike)*e1 - sin(strike)*e2
+  
+  w = sin(dip)*e3 + cos(dip)*v
+  z = sin(-rake)*w + cos(-rake)*u
+  
+  z
+}
+
+# Calculate geometry for triangular subfaults
+# 
+# - Uses *corners* to calculate *centers*, *longitude*, *latitude*,
+# *depth*, *strike*, *dip*, *length*, *width*.
+# 
+# - sets *coordinate_specification* as "triangular"
+# 
+# - Note that calculate_geometry() computes 
+# long/lat/strike/dip/length/width to calculate centers/corners
+# JP's notes:
+# corners is 3x3 matrix where each row is (lon, lat, depth) of a single corner
+calculate_geometry_triangles = function(corners) {
+  
+  x0 = corners
+  x = x0
+  
+  x[,3] = -abs(x[,3]) # set depth to be always negative
+  
+  if(FALSE) {
+    # old coordinate transform
+    
+    # compute strike and dip direction
+    # e3: vertical 
+    # v1,v2: tangents from x0
+    e3 = c(0,0,1)
+    v1 = x[2,] - x[1,]
+    v2 = x[3,] - x[1,]
+    
+    DEG2RAD = 2*pi/360
+    v1[1] *= LAT2METER * cos( DEG2RAD*x[1,2] ) 
+    v2[1] *= LAT2METER * cos( DEG2RAD*x[1,2] ) 
+    v1[2] *= LAT2METER 
+    v2[2] *= LAT2METER
+  } 
+  
+  x[,1:2] = projCSZ(x[,1:2])
+  
+  v1 = x[2,] - x[1,]
+  v2 = x[3,] - x[1,]
+  
+  browser()
+  e3 = c(0,0,1)
+  normal = cross(v1,v2)
+  if(normal[3] < 0) {
+    normal = -normal
+    fix_orientation = TRUE
+  } else {
+    fix_orientation = FALSE
+  }
+  strikev = cross(normal,e3)   # vector in strike direction
+  
+  a = normal[1]
+  b = normal[2]
+  c = normal[3]
+  
+  #Compute strike
+  # strike_deg = rad2deg(arctan(-b/a))
+  RAD2DEG = 360 / 2*pi
+  strike_deg = RAD2DEG * arctan(-b/a)
+  
+  #Compute dip
+  # beta = deg2rad(strike_deg + 90)
+  # beta = 2*pi / 360 * ((strike_deg + 90) %% 360)
+  beta = 2*pi / 360 * (strike_deg + 90)
+  # m = numpy.array([sin(beta),cos(beta),0]) #Points in dip direction
+  # n = numpy.array([a,b,c]) #Normal to the plane
+  m = c(sin(beta),cos(beta),0) #Points in dip direction
+  n = c(a,b,c) #Normal to the plane
+  
+  if(abs(c) < 1e-8) {
+    dip_deg = 90   # vertical fault
+  } else {
+    # dip_deg = rad2deg(arcsin(m.dot(n)/(norm(m)*norm(n))))
+    dip_deg = RAD2DEG * arcsin((m %*% n)/(norm(as.matrix(m))*norm(as.matrix(n))))
+  }
+  
+  # dip should be between 0 and 90. If negative, reverse strike:
+  if(dip_deg < 0) {
+    strike_deg = strike_deg - 180.
+    dip_deg = -dip_deg
+  }
+  if((0 > dip_deg) || (dip_deg > 90)) {
+    stop(paste0("dip_deg = ", dip_deg, ", but must be between 0 and 90"))
+  }
+  
+  # keep strike_deg positive
+  if(strike_deg < 0) {
+    strike_deg = 360 + strike_deg
+  }
+  if(strike_deg < 0) {
+    stop(paste0("strike_deg = ", strike_deg, ", but must be positive"))
+  }
+  
+  strike = strike_deg
+  dip = dip_deg
+  
+  # find the center line
+  xx = matrix(0, nrow=3, ncol=3)
+  xx[1,] = (x0[2,] + x0[3,]) / 2. # midpt opposite a
+  xx[2,] = (x0[1,] + x0[3,]) / 2. # midpt opposite b
+  xx[3,] = (x0[1,] + x0[2,]) / 2. # midpt opposite c
+  
+  i = which.min(xx[3,])
+  
+  browser()
+  # centers = [x[,i].tolist(), xx[,i].tolist()]
+  centers = [x[,i].tolist(), xx[,i].tolist()]
+  
+  if(x[3,i] <= xx[3,i]) {
+    # self._centers.reverse()
+    centers = rev(centers)
+  }
+  
+  # xcenter = numpy.mean(xx, axis=0)
+  xcenter = colMeans(xx)
+  longitude = xcenter[0]
+  latitude = xcenter[1]
+  depth = xcenter[2]
+  
+  # length and width are set to sqrt(area): 
+  # this is set temporarily so that Fault.Mw() can be computed
+  
+  area = norm(normal) / 2.
+  length = sqrt(area)
+  width = sqrt(area)
+  
+  list(centers=centers, lon=longitude, lat=latitude, depth=depth, strike=strike, dip=dip)
+}
+
+# compute coordinates
+# 
+# :Input:
+#   - X1,X2,X3: longitude,latitude,depth
+# - alpha: angle of the vertical hyperplane
+# (measured from north-direction, =strike)
+# - beta: angle of the angular dislocation 
+# (angle between two inf lines, 
+#   measured from depth-direction)
+# - Olong,Olat,Odepth: longitude,latitude,depth of 
+# origin of y1-y2-y3 coordinates
+# 
+# :Output:
+#   
+#   - tuple (y,z,ybar,zbar)
+# - each numpy array of same shape as x
+# containing *angular* coordinates as well as its mirrored image
+get_halfspace_coords = function(subfault,X1,X2,X3,alpha,beta,Olong,Olat,Odepth) {
+  
+  dims = X1.shape
+  Odepth = abs(Odepth)
+  
+  # convert lat/long to meters
+  DEG2RAD = 2*pi/360
+  X1 = LAT2METER * cos( DEG2RAD*subfault$lat ) * (X1 - Olong)
+  X2 = LAT2METER * (X2 - Olat)
+  
+  Y1 = numpy.zeros(dims)       # yi-coordinates
+  Y2 = numpy.zeros(dims)       # yi-coordinates
+  Y3 = numpy.zeros(dims)       # yi-coordinates
+  
+  Z1 = numpy.zeros(dims)       # yi coordinates rot. by beta
+  Z2 = numpy.zeros(dims)       # yi coordinates rot. by beta
+  Z3 = numpy.zeros(dims)       # yi coordinates rot. by beta
+  
+  Yb1 = numpy.zeros(dims)    # mirrored yi-coordinates
+  Yb2 = numpy.zeros(dims)    # mirrored yi-coordinates
+  Yb3 = numpy.zeros(dims)    # mirrored yi-coordinates
+  
+  Zb1 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
+  Zb2 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
+  Zb3 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
+  
+  # rotate by -alpha in long/lat plane
+  Y1 = sin(alpha)*X1 + cos(alpha)*X2
+  Y2 = cos(alpha)*X1 - sin(alpha)*X2
+  Y3 = X3 - abs(Odepth)
+  
+  Z1 = cos(beta)*Y1 - sin(beta)*Y3
+  Z2 = Y2
+  Z3 = sin(beta)*Y1 + cos(beta)*Y3
+  
+  Yb1 = Y1
+  Yb2 = Y2
+  Yb3 = X3 + abs(Odepth)
+  
+  Zb1 =  cos(beta)*Y1 + sin(beta)*Yb3
+  Zb2 =  Y2
+  Zb3 = -sin(beta)*Y1 + cos(beta)*Yb3
+  
+  list(Y1,Y2,Y3,Z1,Z2,Z3,Yb1,Yb2,Yb3,Zb1,Zb2,Zb3)
+}
 
 
 

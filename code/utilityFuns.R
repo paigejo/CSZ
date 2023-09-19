@@ -23,7 +23,10 @@ getMomentFromSlip = function(slips, rigidity=4*10^10, doTaper=FALSE, lambda=1, f
 # (EPSG:32610) or back if inverse==TRUE.
 # x: a matrix of points, where each row is the coordinates of a single point
 # inverse: if FALSE, converts from lon/lat to utm, else does the reverse
-projCSZ = function(x, inverse=FALSE) {
+# units: currently not used
+projCSZ = function(x, inverse=FALSE, units=c("m", "km")) {
+  units = match.arg(units)
+  
   # determine the "to" projection systems
   utmProj = st_crs("EPSG:32610")
   lonLatProj = st_crs("EPSG:4326")

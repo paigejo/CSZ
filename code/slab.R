@@ -89,7 +89,7 @@ discretizeSlab2 = function(n=2000, max.n=-1, max.edge=c(15, 100), maxDepth=30, .
   }
   
   faultGeom = getGeomFromMesh(mesh, extent=hullInt$loc, maxDepth=maxDepth)
-  browser()
+  
   faultGeom
 }
 
