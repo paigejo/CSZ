@@ -19,7 +19,7 @@ if(FALSE) {
   install.packages("plyr")
   install.packages("sf")
   install.packages("ncdf4")
-  install.packages("alphahull")
+  install.packages("pracma")
 }
 
 # load required packages and R scripts
@@ -41,7 +41,7 @@ library(plyr)
 library(INLA)
 library(sf)
 library(ncdf4)
-library(alphahull)
+library(pracma)
 
 inf = sessionInfo()
 if(inf$platform == "x86_64-apple-darwin17.0 (64-bit)") {
@@ -52,12 +52,12 @@ if(inf$platform == "x86_64-apple-darwin17.0 (64-bit)") {
   # avoid setting too many threads and thereby using too much memory
   inla.setOption(num.threads=1)
   options(error=traceback)
-  setwd("~/git/jittering/")
+  setwd("~/git/csz/")
 } else if(inf$platform != "x86_64-w64-mingw32/x64 (64-bit)" && inf$platform != "x86_64-pc-linux-gnu (64-bit)") {
-  setwd("~/git/jittering/")
+  setwd("~/git/csz/")
   options(error=recover)
 } else {
-  setwd("~/git/jittering/")
+  setwd("~/git/csz/")
   inla.setOption(num.threads=1) # consider raising
   options(error=recover)
 }
@@ -70,6 +70,7 @@ source("code/okada.R")
 source("code/plotter.R")
 source("code/genericSpatialPlottingFunctions.R")
 source("code/utilityFuns.R")
+source("code/test.R")
 
 ## load in global variables made from the following script: 
 if(FALSE) {

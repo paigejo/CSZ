@@ -1,13 +1,75 @@
+
+# Same as plotMapDat in genericSpatialPlottingFunctions, but plots values over list 
+# of polygons instead of shapefile data.
+# polyList: a list of matrices defining points forming polygons. If points are 3D or above, 
+#           removes last coordinates to make them 2D
+# plotVar: if null, plot the areal boundaries only. Else plot plotVar values for each area
+# zlim: range of the response
+# project: if FALSE, plot with lon/lat coordinates.  Otherwise, plot with projected coords 
+#          using myProjection function.  This can be used when plotting the projected `easting' 
+#          and `northing' variables for instance.
+# cols: color vector representing the color scale
+# legend.mar, legend.args, n.ticks: see ?image.plot
+# plotArgs: arguments to the plot function
+# scaleFun, scaleFunInverse: how to scale the color scale and its inverse. For example, log and exp
+# asp: aspect ratio
+# addColorBar: whether to add the color bar/legend
+# forceColorsInRange: whether or not to force colors in the plotted range. Useful if 
+#   you have a value outside of the range or that is NA after being transformed via the scale 
+#   that you still want to plot at the edge of the color scale
+# crosshatchNADensity: Adds crosshatching for areas with NA values. See ?polygon density argument.
+# # min.n: approximate number of ticks in color scale. See ?pretty
+# myProjection: a map projection function taking a 2 column matrix of coordinates 
+#   and projects them.
+# ...: arguments to polygon function
+plotPolyDat = function(polyList, plotVar=NULL, zlim=NULL, project=FALSE, cols=tim.colors(), 
+                       legend.mar=7, new=TRUE, plotArgs=NULL, main=NULL, xlim=NULL, xlab=NULL, scaleFun = function(x) {x}, scaleFunInverse = function(x) {x}, 
+                       ylim=NULL, ylab=NULL, n.ticks=5, min.n=5, ticks=NULL, tickLabels=NULL, asp=1, legend.width=1.2, addColorBar=TRUE, 
+                       legendArgs=list(), leaveRoomForLegend=TRUE, forceColorsInRange=FALSE, 
+                       crosshatchNADensity=10, myProjection=NULL, ...) {
+  require(sp)
+  
+  # construct mapDat from polyList:
+  #  1. Make Polygon object from each polygon
+  #  2. Make list of Polygon objects
+  #  3. Make Polygons object from the list and ID vector
+  #  4. Make SpatialPolygons object from Polygons object and a plotting order
+  #  5. Make SpatialPolygonsDataFrame object from SpatialPolygons object and dataframe
+  polys = list()
+  for(i in 1:length(polyList)) {
+    thisPolyCoords = polyList[[i]]
+    thisPoly = Polygon(thisPolyCoords[,1:2]) # force points to be 2D
+    thisPPoly = Polygons(list(thisPoly), ID=as.character(i))
+    polys = c(polys, list(thisPPoly))
+  }
+  # Polys = Polygons(polys, ID=as.character(1:length(polys)))
+  SpPolys = SpatialPolygons(polys, pO=as.integer(1:length(polys)))
+  SpPolysDFrame = SpatialPolygonsDataFrame(SpPolys, 
+                                           data.frame(list(ID=1:length(polys))), 
+                                           match.ID=FALSE)
+  
+  # call plotMapDat
+  varAreas = as.character(1:length(polys))
+  regionNames = varAreas
+  plotMapDat(mapDat=SpPolysDFrame, plotVar=plotVar, varAreas=varAreas, regionNames=regionNames, zlim=zlim, project=project, cols=cols, 
+             legend.mar=legend.mar, new=new, plotArgs=plotArgs, main=main, xlim=xlim, xlab=xlab, scaleFun=scaleFun, scaleFunInverse=scaleFunInverse, 
+             ylim=ylim, ylab=ylab, n.ticks=n.ticks, min.n=min.n, ticks=ticks, tickLabels=tickLabels, asp=asp, legend.width=legend.width, addColorBar=addColorBar, 
+             legendArgs=legendArgs, leaveRoomForLegend=leaveRoomForLegend, forceColorsInRange=forceColorsInRange, 
+             crosshatchNADensity=crosshatchNADensity, myProjection=myProjection, ...)
+}
+
+# old plotting functions no longer used ----
+
 # makes plots comparing the predicted subsidence levels to the subsidence data.
 # if prediction inputs are left NULL, they are computed using params
 comparePredsToSubs = function(params, slipPreds=NULL, slipPredsGPS=NULL, subPreds=NULL, 
-                                subPredsGPS=NULL, nsim=100, plotNameRoot="full", 
-                                savePlots=TRUE, G=NULL, fileNameRoot=plotNameRoot, 
-                                muVec=NULL, useGPS=FALSE, tvec=NULL, subDat=dr1, 
-                                logScale=FALSE, fault=csz, latRange=c(40, 50), 
-                                posNormalModel=FALSE, normalModel=posNormalModel, doGPSPred=FALSE, 
-                                useMVNApprox=FALSE, taperedGPSDat=FALSE, dStar=28000, normalizeTaper=FALSE, 
-                                noTitle=FALSE, lwd=.5, magLimits=c(8.6, 9.4), anisotropic=FALSE) {
+                              subPredsGPS=NULL, nsim=100, plotNameRoot="full", 
+                              savePlots=TRUE, G=NULL, fileNameRoot=plotNameRoot, 
+                              muVec=NULL, useGPS=FALSE, tvec=NULL, subDat=dr1, 
+                              logScale=FALSE, fault=csz, latRange=c(40, 50), 
+                              posNormalModel=FALSE, normalModel=posNormalModel, doGPSPred=FALSE, 
+                              useMVNApprox=FALSE, taperedGPSDat=FALSE, dStar=28000, normalizeTaper=FALSE, 
+                              noTitle=FALSE, lwd=.5, magLimits=c(8.6, 9.4), anisotropic=FALSE) {
   # get parameters
   if(is.null(muVec)) {
     lambdaMLE = params[1]
@@ -92,16 +154,16 @@ comparePredsToSubs = function(params, slipPreds=NULL, slipPredsGPS=NULL, subPred
   # slip mean
   if(!logScale) {
     pl1 = plotFaultDat(fault, plotVar=meanSlip, main=paste0(plotNameRoot, "Mean Slip (m)"), 
-                         xlim=lonRange, ylim=latRange, clab="", lwd=lwd) + geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=subDat)
+                       xlim=lonRange, ylim=latRange, clab="", lwd=lwd) + geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=subDat)
   }
   else {
     pl1 = plotFaultDat(fault, plotVar=meanSlip, main=paste0(plotNameRoot, "Mean Slip (m)"), 
-                         xlim=lonRange, ylim=latRange, logScale=TRUE, clab="", lwd=lwd) + geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=subDat)
+                       xlim=lonRange, ylim=latRange, logScale=TRUE, clab="", lwd=lwd) + geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=subDat)
   }
   
   # slip SE
   pl2 = plotFaultDat(fault, plotVar = slipSD, main=paste0(plotNameRoot, "Slip SD (m)"), 
-                       xlim=lonRange, ylim=latRange, clab="", lwd=lwd) + geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=subDat)
+                     xlim=lonRange, ylim=latRange, clab="", lwd=lwd) + geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=subDat)
   
   # simulated subsidence data from Okada model using marginal distribution
   # subRange = range(c(-meanSub, -l95Noise, -u95Noise, subDat$subsidence))
@@ -163,8 +225,8 @@ comparePredsToSubs = function(params, slipPreds=NULL, slipPredsGPS=NULL, subPred
 
 # plots 2x2 grid of fault plots
 plotFixedSlip = function(meanSlip, medSlip=NULL, l95, u95, slipSD=NULL, plotNameRoot="full", 
-                           savePlots=TRUE, fileNameRoot=plotNameRoot, logScale=FALSE, 
-                           event="All", subDat=dr1) {
+                         savePlots=TRUE, fileNameRoot=plotNameRoot, logScale=FALSE, 
+                         event="All", subDat=dr1) {
   if(event == "All")
     inds = 1:nrow(subDat)
   else
@@ -173,28 +235,28 @@ plotFixedSlip = function(meanSlip, medSlip=NULL, l95, u95, slipSD=NULL, plotName
   
   # mean
   pl1 = plotFaultDat(csz, meanSlip, logScale=logScale, xlim=lonRange, ylim=latRange, 
-                       main=paste0(plotNameRoot, " Mean Slip (m)"), clab="") + 
+                     main=paste0(plotNameRoot, " Mean Slip (m)"), clab="") + 
     geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=sortDat)
   
   # median/sd
   if(is.null(slipSD)) {
     pl2 = plotFaultDat(csz, medSlip, logScale=logScale, xlim=lonRange, ylim=latRange, 
-                         main=paste0(plotNameRoot, " Median Slip (m)"), clab="") + 
+                       main=paste0(plotNameRoot, " Median Slip (m)"), clab="") + 
       geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=sortDat)
   }
   else if(is.null(medSlip)) {
     pl2 = plotFaultDat(csz, slipSD, logScale=logScale, xlim=lonRange, ylim=latRange, 
-                         main=paste0(plotNameRoot, " Slip SD (m)"), clab="") + 
+                       main=paste0(plotNameRoot, " Slip SD (m)"), clab="") + 
       geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=sortDat)
   }
   # 2.5th percentile
   pl3 = plotFaultDat(csz, l95, logScale=logScale, xlim=lonRange, ylim=latRange, 
-                       main=paste0(plotNameRoot, " 2.5th Percentile Slip (m)"), clab="") + 
+                     main=paste0(plotNameRoot, " 2.5th Percentile Slip (m)"), clab="") + 
     geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=sortDat)
   
   ## 97.5th percentile
   pl4 = plotFaultDat(csz, u95, logScale=logScale, xlim=lonRange, ylim=latRange, 
-                       main=paste0(plotNameRoot, " 97.5th Percentile Slip (m)"), clab="") + 
+                     main=paste0(plotNameRoot, " 97.5th Percentile Slip (m)"), clab="") + 
     geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=sortDat)
   
   if(savePlots)
@@ -209,15 +271,15 @@ plotFixedSlip = function(meanSlip, medSlip=NULL, l95, u95, slipSD=NULL, plotName
 
 # plot subsidence predictions against each other
 compareSubs = function(params, 
-                         subPreds1, subPreds2, subPreds3, subPreds4, 
-                         subDat1=dr1, subDat2=subDat1, subDat3=subDat1, subDat4=subDat3, 
-                         tvec=NULL, 
-                         plotNameRoot1="full", plotNameRoot2="full", plotNameRoot3="full", plotNameRoot4="full", 
-                         savePlots=TRUE, fileNameRoot="", 
-                         logScale=FALSE, fault=csz, latRange=c(40, 50), 
-                         posNormalModel=FALSE, normalModel=posNormalModel, 
-                         useMVNApprox=FALSE, taperedGPSDat=FALSE, dStar=25000, 
-                         normalizeTaper=FALSE, noTitle=FALSE) {
+                       subPreds1, subPreds2, subPreds3, subPreds4, 
+                       subDat1=dr1, subDat2=subDat1, subDat3=subDat1, subDat4=subDat3, 
+                       tvec=NULL, 
+                       plotNameRoot1="full", plotNameRoot2="full", plotNameRoot3="full", plotNameRoot4="full", 
+                       savePlots=TRUE, fileNameRoot="", 
+                       logScale=FALSE, fault=csz, latRange=c(40, 50), 
+                       posNormalModel=FALSE, normalModel=posNormalModel, 
+                       useMVNApprox=FALSE, taperedGPSDat=FALSE, dStar=25000, 
+                       normalizeTaper=FALSE, noTitle=FALSE) {
   
   # get parameters
   lambdaMLE = params[1]
@@ -385,8 +447,8 @@ multiplot <- function(..., plotlist=NULL, cols=1, layout=NULL, byrow=FALSE) {
 ##### functions for plotting multiple fields on a grid
 
 plotSubsidenceGrid = function(allSubs, allPlotNames=NULL, savePlots=TRUE, fileNameRoot="", 
-                                event="All", subDat=dr1, nr=NULL, nc=2, byrow=TRUE, 
-                                latRange=c(40,50)) {
+                              event="All", subDat=dr1, nr=NULL, nc=2, byrow=TRUE, 
+                              latRange=c(40,50)) {
   if(is.null(allPlotNames)) {
     for(i in 1:ncol(allSubs))
       allPlotNames[i] = list(NULL)
@@ -431,9 +493,9 @@ plotSubsidenceGrid = function(allSubs, allPlotNames=NULL, savePlots=TRUE, fileNa
 # nr and nc is number of rows and columns of grid
 # byrow is whether to put plots in row-major or column-major order
 plotSlipGrid = function(allSlips, allPlotNames=NULL, savePlots=TRUE, 
-                          fileNameRoot="", logScale=FALSE, 
-                          event="All", subDat=dr1, nr=NULL, nc=2, byrow=TRUE, 
-                          lwd=.5) {
+                        fileNameRoot="", logScale=FALSE, 
+                        event="All", subDat=dr1, nr=NULL, nc=2, byrow=TRUE, 
+                        lwd=.5) {
   if(is.null(allPlotNames)) {
     for(i in 1:ncol(allSlips))
       allPlotNames[i] = list(NULL)
@@ -450,8 +512,8 @@ plotSlipGrid = function(allSlips, allPlotNames=NULL, savePlots=TRUE,
   slipRange = range(allSlips)
   for(i in 1:ncol(allSlips)) {
     pl = plotFaultDat(csz, allSlips[,i], varRange=slipRange, logScale=logScale, 
-                        xlim=lonRange, ylim=latRange, 
-                        main=allPlotNames[[i]], clab="", lwd=lwd) + 
+                      xlim=lonRange, ylim=latRange, 
+                      main=allPlotNames[[i]], clab="", lwd=lwd) + 
       geom_point(aes(x=Lon, y=Lat, col="red"), shape=3, data=sortDat)
     plots = c(plots, list(pl))
   }
@@ -471,7 +533,7 @@ plotSlipGrid = function(allSlips, allPlotNames=NULL, savePlots=TRUE,
 
 # function for plotting model locking normalized residuals versus latitude
 plotSubsidenceResiduals = function(modelFit, tvec, subDat, G, latRange=c(40,50), 
-                                     main=NULL, fault=csz) {
+                                   main=NULL, fault=csz) {
   # get model parameters
   params = modelFit$optPar
   muZ = params[1]
@@ -513,12 +575,12 @@ plotFault = function(fault=csz, color="black") {
 }
 
 plotFaultDat = function(rows, plotVar="depth", varRange=NULL, plotData=TRUE, 
-                          logScale=FALSE, xlim=c(-128, -122), ylim=c(39.5, 50.5), 
-                          xlab=NULL, ylab=NULL, main="Cascadia Subduction Zone", 
-                          clab="Depth (m)", addLegend=plotData, lwd=1, 
-                          xName="longitude", yName="latitude", 
-                          projection=NULL, parameters=NULL, orientation=NULL, 
-                          scale=1, roundDigits=2, coordsAlreadyScaled=FALSE) {
+                        logScale=FALSE, xlim=c(-128, -122), ylim=c(39.5, 50.5), 
+                        xlab=NULL, ylab=NULL, main="Cascadia Subduction Zone", 
+                        clab="Depth (m)", addLegend=plotData, lwd=1, 
+                        xName="longitude", yName="latitude", 
+                        projection=NULL, parameters=NULL, orientation=NULL, 
+                        scale=1, roundDigits=2, coordsAlreadyScaled=FALSE) {
   
   if(is.null(orientation) && !is.null(projection)) {
     warning("no orientation specified, so projection being set to the last used projection")
@@ -808,3 +870,5 @@ plotSurfGoogleMaps = function(gpsDat, plotVar=gpsDat$Depth, varRange=NULL, plotD
   
   p1
 }
+
+

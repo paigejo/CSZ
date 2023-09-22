@@ -240,6 +240,117 @@ dip_slip = function(y1, y2, ang_dip, q, poisson=0.25) {
   return(f)
 }
 
+calcGeom = function(subfault) {
+  #   Calculate the fault geometry.
+  #   
+  #   Routine calculates the class attributes *corners* and 
+  #   *centers* which are the corners of the fault plane and 
+  #   points along the centerline respecitvely in 3D space.
+  #   
+  #   **Note:** *self.coordinate_specification*  specifies the location on each
+  #   subfault that corresponds to the (longitude,latitude) and depth 
+  #   of the subfault.
+  #   Currently must be one of these strings:
+  #     
+  #   - "bottom center": (longitude,latitude) and depth at bottom center
+  #   - "top center": (longitude,latitude) and depth at top center
+  #   - "centroid": (longitude,latitude) and depth at centroid of plane
+  #   - "noaa sift": (longitude,latitude) at bottom center, depth at top,  
+  #   This mixed convention is used by the NOAA SIFT
+  #   database and "unit sources", see:
+  #     http://nctr.pmel.noaa.gov/propagation-database.html
+  #   
+  #   The Okada model is expressed assuming (longitude,latitude) and depth
+  #   are at the bottom center of the fault plane, so values must be
+  #   shifted or other specifications.
+  
+  row = subfault
+  if(!is.list(row))
+    row = data.frame(row)
+  
+  # Simple conversion factors
+  #lat2meter = util.dist_latlong2meters(0.0, 1.0)[1]
+  #LAT2METER = 110.574 #* 10^3
+  LAT2METER = 111133.84012073894 #/10^3
+  lat2meter = LAT2METER
+  DEG2RAD = 2*pi/360
+  
+  #   Setup coordinate arrays
+  #   Python format:
+  #   Top edge    Bottom edge
+  #     a ----------- b          ^ 
+  #     |             |          |         ^
+  #     |             |          |         |
+  #     |             |          |         | along-strike direction
+  #     |             |          |         |
+  #     0------1------2          | length  |
+  #     |             |          |
+  #     |             |          |
+  #     |             |          |
+  #     |             |          |
+  #     d ----------- c          v
+  #     <------------->
+  #     width
+  #   
+  #     <-- up dip direction
+  
+  #   corners = [[None, None, None], # a 
+  #              [None, None, None], # b
+  #              [None, None, None], # c
+  #              [None, None, None]] # d
+  #   centers = [[None, None, None], # 1
+  #              [None, None, None], # 2 
+  #              [None, None, None]] # 3
+  corners = matrix(nrow=4, ncol=3) # rows are a,b,c,d, and cols are lon,lat,depth
+  centers = matrix(nrow=3, ncol=3) # rows are 1,2,3 (0,1,2), and cols are lon,lat,depth
+  
+  # Set depths
+  centers[1,3] = row$depth
+  centers[2,3] = row$depth + 0.5 * row$width * sin(row$dip * DEG2RAD)
+  centers[3,3] = row$depth + row$width * sin(row$dip * DEG2RAD)
+  
+  corners[1,3] = centers[1,3]
+  corners[4,3] = centers[1,3]
+  corners[2,3] = centers[3,3]
+  corners[3,3] = centers[3,3]
+  
+  # Locate fault plane in 3D space:  
+  # See the class docstring for a guide to labeling of corners/centers.
+  
+  # Vector *up_dip* goes from bottom edge to top edge, in meters,
+  # from point 2 to point 0 in the figure in the class docstring.
+  
+  up_dip = c(-row$width * cos(row$dip * DEG2RAD) * cos(row$strike * DEG2RAD) 
+             / (LAT2METER * cos(row$latitude * DEG2RAD)),
+             row$width * cos(row$dip * DEG2RAD) 
+             * sin(row$strike * DEG2RAD) / LAT2METER)
+  
+  centers[1,1:2] = c(row$longitude, row$latitude)
+  centers[2,1:2] = c(row$longitude - 0.5 * up_dip[1],
+                     row$latitude - 0.5 * up_dip[2])
+  centers[3,1:2] = c(row$longitude - up_dip[1],
+                     row$latitude - up_dip[2])
+  
+  # Calculate coordinates of corners:
+  # Vector *strike* goes along the top edge from point 0 to point a
+  # in the figure in the class docstring.
+  
+  up_strike = c(0.5 * row$length * sin(row$strike * DEG2RAD) 
+                / (lat2meter * cos(centers[3,2] * DEG2RAD)),
+                0.5 * row$length * cos(row$strike * DEG2RAD) / lat2meter)
+  
+  corners[1,1:2] = c(centers[1,1] + up_strike[1],
+                     centers[1,2] + up_strike[2])
+  corners[2,1:2] = c(centers[3,1] + up_strike[1], 
+                     centers[3,2] + up_strike[2])
+  corners[3,1:2] = c(centers[3,1] - up_strike[1],
+                     centers[3,2] - up_strike[2])
+  corners[4,1:2] = c(centers[1,1] - up_strike[1],
+                     centers[1,2] - up_strike[2])
+  
+  return(list(corners=corners, centers=centers))
+}
+
 # Triangles ----
 
 # Apply Okada to this subfault and return a DTopography object.
@@ -266,13 +377,69 @@ dip_slip = function(y1, y2, ang_dip, q, poisson=0.25) {
 # each subfault that corresponds to the (longitude,latitude) and depth 
 # subfault.
 # 
-# See the documentation for *SubFault.calculate_geometry* for dicussion of the 
+# See the documentation for *SubFault.calculate_geometry* for discussion of the 
 # possible values *self.coordinate_specification* can take.
-okadaTri = function(fault, x, y) {
+
+# JP's documentation:
+# fault: a list of subfaults. See okadaSubfaultTri for details
+# x, y: x, y coordinates of locations at which to calculate surface deformation
+# slip: a vector of coseismic slips, 1 for each subfault
+# rake: a vector of rakes, 1 for each subfault
+okadaTri = function(fault, x, y, 
+                    slip=rep(1, length(fault)), 
+                    rake=rep(90, length(fault))) {
   
+  if(length(slip) == 1) {
+    slip = rep(slip, length(fault))
+  }
+  if(length(rake) == 1) {
+    rake = rep(rake, length(fault))
+  }
+  
+  # add slip, rake to subfaults
+  for(i in 1:length(fault)) {
+    fault[[i]]$rake = rake[i]
+    fault[[i]]$slip = slip[i]
+  }
+  
+  # get topographic deformations for all subfaults
+  allTopos = lapply(fault, okadaSubfaultTri, x=x, y=y)
+  
+  # now add them together
+  dtopo = allTopos[[1]]
+  for(i in 2:length(fault)) {
+    thisTopo = allTopos[[i]]
+    
+    dtopo$dX = dtopo$dX + thisTopo$dX
+    dtopo$dY = dtopo$dY + thisTopo$dY
+    dtopo$dZ = dtopo$dZ + thisTopo$dZ
+  }
+  
+  dtopo
 }
 
+# subfault: a list with elements:
+#     fix_orientation: whether the orientation is fixed. Set by 
+#                      calculate_geometry_triangles
+#     corners: 3x3 matrix where each row is (lon, lat, depth) of a single corner
+#     centers: 
+#     lon: longitude TODO
+#     lat: latitude TODO
+#     depth: depth TODO
+#     strike: strike TODO
+#     dip: dip TODO
+#     slip: average coseismic slip for the subfault
+#     rake: rake of the subfault
+# x, y: x, y coordinates of locations at which to calculate surface deformation
+# NOTE: if subfault$rake not set, defaults to 90
 okadaSubfaultTri = function(subfault, x, y) {
+  
+  if(is.null(subfault$rake)) {
+    subfault$rake = 90
+  }
+  if(is.null(subfault$slip)) {
+    subfault$slip = 1
+  }
   
   out = meshgrid(x, y)   # uppercase
   X1 = out$X
@@ -282,6 +449,7 @@ okadaSubfaultTri = function(subfault, x, y) {
   
   # compute burgers vector
   slipv = get_unit_slip_vector(subfault) 
+  # browser() # check slipv
   burgersv = slipv * subfault$slip
   
   # get beta angles
@@ -294,32 +462,51 @@ okadaSubfaultTri = function(subfault, x, y) {
   beta_list = out$beta_list
   
   #
-  v11 = numpy.zeros(X1.shape)
-  v21 = numpy.zeros(X1.shape)
-  v31 = numpy.zeros(X1.shape)
+  # v11 = numpy.zeros(X1.shape)
+  # v21 = numpy.zeros(X1.shape)
+  # v31 = numpy.zeros(X1.shape)
+  # 
+  # v12 = numpy.zeros(X1.shape)
+  # v22 = numpy.zeros(X1.shape)
+  # v32 = numpy.zeros(X1.shape)
+  # 
+  # v13 = numpy.zeros(X1.shape)
+  # v23 = numpy.zeros(X1.shape)
+  # v33 = numpy.zeros(X1.shape)
+  dims = dim(X1)
+  v11 = matrix(0, nrow=dims[1], ncol=dims[2])
+  v21 = matrix(0, nrow=dims[1], ncol=dims[2])
+  v31 = matrix(0, nrow=dims[1], ncol=dims[2])
   
-  v12 = numpy.zeros(X1.shape)
-  v22 = numpy.zeros(X1.shape)
-  v32 = numpy.zeros(X1.shape)
+  v12 = matrix(0, nrow=dims[1], ncol=dims[2])
+  v22 = matrix(0, nrow=dims[1], ncol=dims[2])
+  v32 = matrix(0, nrow=dims[1], ncol=dims[2])
   
-  v13 = numpy.zeros(X1.shape)
-  v23 = numpy.zeros(X1.shape)
-  v33 = numpy.zeros(X1.shape)
+  v13 = matrix(0, nrow=dims[1], ncol=dims[2])
+  v23 = matrix(0, nrow=dims[1], ncol=dims[2])
+  v33 = matrix(0, nrow=dims[1], ncol=dims[2])
   
-  for(j in range(6)) {
+  # for(j in range(6)) {
+  for(j in 0:5) {
     # k = j%3
-    k = j%%3
-    alpha = alpha_list[k]
-    beta = beta_list[k]
+    k = (j%%3)+1
+    alpha = alpha_list[[k]]
+    beta = beta_list[[k]]
     
     if (floor(j/3) == 0) {
-      Olong = O1_list[k][0]
-      Olat = O1_list[k][1]
-      Odepth = abs(O1_list[k][2])
+      # Olong = O1_list[k][0]
+      # Olat = O1_list[k][1]
+      # Odepth = abs(O1_list[k][2])
+      Olong = O1_list[[k]][1]
+      Olat = O1_list[[k]][2]
+      Odepth = abs(O1_list[[k]][3])
     } else if (floor(j/3) == 1) {
-      Olong = O2_list[k][0]
-      Olat = O2_list[k][1]
-      Odepth = abs(O2_list[k][2])
+      # Olong = O2_list[k][0]
+      # Olat = O2_list[k][1]
+      # Odepth = abs(O2_list[k][2])
+      Olong = O2_list[[k]][1]
+      Olat = O2_list[[k]][2]
+      Odepth = abs(O2_list[[k]][3])
     }
     
     if(reverse_list[k]) {
@@ -329,48 +516,84 @@ okadaSubfaultTri = function(subfault, x, y) {
     }
     
     # fix orientation 
-    if(self._fix_orientation) {
-      sgn *= -1
+    if(subfault$fix_orientation) {
+      sgn = -1 * sgn
     }
     
-    Y1,Y2,Y3,Z1,Z2,Z3,Yb1,Yb2,Yb3,Zb1,Zb2,Zb3 = 
-      self._get_halfspace_coords(X1,X2,X3,alpha,beta,Olong,Olat,Odepth)
+    out = get_halfspace_coords(subfault, X1,X2,X3,alpha,beta,Olong,Olat,Odepth)
+    Y1 = out$Y1
+    Y2 = out$Y2
+    Y3 = out$Y3
+    Z1 = out$Z1
+    Z2 = out$Z2
+    Z3 = out$Z3
+    Yb1 = out$Yb1
+    Yb2 = out$Yb2
+    Yb3 = out$Yb3
+    Zb1 = out$Zb1
+    Zb2 = out$Zb2
+    Zb3 = out$Zb3
     
-    w11,w12,w13,w21,w22,w23,w31,w32,w33 = 
-      self._get_angular_dislocations_surface(Y1,Y2,Y3,beta,Odepth)
+    out = get_angular_dislocations_surface(subfault, Y1,Y2,Y3,beta,Odepth)
+    w11 = out$v11
+    w12 = out$v12
+    w13 = out$v13
+    w21 = out$v21
+    w22 = out$v22
+    w23 = out$v23
+    w31 = out$v31
+    w32 = out$v32
+    w33 = out$v33
     
-    w11,w12,w13,w21,w22,w23,w31,w32,w33 = 
-      self._coord_transform(w11,w12,w13,w21,w22,w23,w31,w32,w33,alpha)
+    if(any(is.na(w11))) {
+      browser()
+    }
     
-    v11 += sgn*w11
-    v21 += sgn*w21
-    v31 += sgn*w31
+    out = coord_transform(subfault, w11,w12,w13,w21,w22,w23,w31,w32,w33,alpha)
+    w11 = out$v11
+    w12 = out$v12
+    w13 = out$v13
+    w21 = out$v21
+    w22 = out$v22
+    w23 = out$v23
+    w31 = out$v31
+    w32 = out$v32
+    w33 = out$v33
     
-    v12 += sgn*w12
-    v22 += sgn*w22
-    v32 += sgn*w32
+    if(any(is.na(w11))) {
+      browser()
+    }
     
-    v13 += sgn*w13
-    v23 += sgn*w23
-    v33 += sgn*w33
+    v11 = v11 + sgn*w11
+    v21 = v21 + sgn*w21
+    v31 = v31 + sgn*w31
+    
+    v12 = v12 + sgn*w12
+    v22 = v22 + sgn*w22
+    v32 = v32 + sgn*w32
+    
+    v13 = v13 + sgn*w13
+    v23 = v23 + sgn*w23
+    v33 = v33 + sgn*w33
   }
   
   # linear combination for each component of Burgers vectors
-  dX = -v11*burgersv[0] - v12*burgersv[1] + v13*burgersv[2]
-  dY = -v21*burgersv[0] - v22*burgersv[1] + v23*burgersv[2]
-  dZ = -v31*burgersv[0] - v32*burgersv[1] + v33*burgersv[2]
+  # dX = -v11*burgersv[0] - v12*burgersv[1] + v13*burgersv[2]
+  # dY = -v21*burgersv[0] - v22*burgersv[1] + v23*burgersv[2]
+  # dZ = -v31*burgersv[0] - v32*burgersv[1] + v33*burgersv[2]
+  dX = -v11*burgersv[1] - v12*burgersv[2] + v13*burgersv[3]
+  dY = -v21*burgersv[1] - v22*burgersv[2] + v23*burgersv[3]
+  dZ = -v31*burgersv[1] - v32*burgersv[2] + v33*burgersv[3]
   
-  dtopo = DTopography()
-  dtopo.X = X1
-  dtopo.Y = X2
-  dtopo.dX = numpy.array(dX, ndmin=3)
-  dtopo.dY = numpy.array(dY, ndmin=3)
-  dtopo.dZ = numpy.array(dZ, ndmin=3)
-  dtopo.times = [0.]
-  self.dtopo = dtopo
+  dtopo = list()
+  dtopo$X = X1
+  dtopo$Y = X2
   
-  return dtopo
+  dtopo$dX = dX
+  dtopo$dY = dY
+  dtopo$dZ = dZ
   
+  dtopo
 }
 
 # compute beta in radians
@@ -380,11 +603,17 @@ okadaSubfaultTri = function(subfault, x, y) {
 # ordering: x2-x1, x3-x2, x1-x3
 # 
 # requires self.corners to have been computed.
+# JP's notes: 
+# lon/lat: 
+#     inputs: subfault$corners, subfault$lat
+#     outputs: O1_list, O2_list 
 get_leg_angles = function(subfault) {
   
   # TODO: put in a coordinate_specification == 'triangular' check here
-  x = numpy.array(self.corners)
-  y = numpy.zeros(x.shape)
+  # x = numpy.array(subfault$corners)
+  # y = numpy.zeros(x.shape)
+  x = subfault$corners
+  y = matrix(0, nrow=nrow(x), ncol=ncol(x))
   
   # convert to meters
   DEG2RAD = 2*pi/360
@@ -397,7 +626,7 @@ get_leg_angles = function(subfault) {
   y[,3] = - abs(x[,3])    # force sign
   
   # v_list = [y[0,:] - y[1,:], y[1,:] - y[2,:], y[2,:] - y[0,:]]
-  v_list = c(y[1,] - y[2,], y[2,] - y[3,], y[3,] - y[1,])
+  v_list = list(y[1,] - y[2,], y[2,] - y[3,], y[3,] - y[1,])
   
   # e3 = numpy.array([0.,0.,-1.])
   e3 = c(0,0,-1)
@@ -411,7 +640,7 @@ get_leg_angles = function(subfault) {
   O2_list = list()
   alpha_list = list()
   beta_list = list()
-  reverse_list = [FALSE,FALSE,FALSE]
+  reverse_list = c(FALSE,FALSE,FALSE)
   
   j = 0
   for(v in v_list) {
@@ -424,31 +653,33 @@ get_leg_angles = function(subfault) {
     if(vn[3] > 0) {
       vn = -vn    # point vn in depth direction
       # k = (j+1)%3
-      k = ((j+1)%%3) + 1
+      k = (j+1)%%3
       l = j
-      reverse_list[j] = TRUE
+      reverse_list[j+1] = TRUE
     }
     
     # O1_list.append(x[k,:].copy())  # set origin for the vector v
     # O2_list.append(x[l,:].copy())  # set dest.  for the vector v
-    O1_list = c(O1_list, list(x[k,]))  # set origin for the vector v
+    O1_list = c(O1_list, list(x[k+1,]))  # set origin for the vector v
     O2_list = c(O2_list, list(x[l+1,]))  # set dest.  for the vector v
     
-    browser()
     # alpha = numpy.arctan2(vn[0],vn[1])
-    alpha = arctan(vn[1],vn[2])
+    alpha = atan2(vn[1],vn[2])
     alpha_list = c(alpha_list, list(alpha))
     
-    # beta = numpy.pi/2 - 
-    #   arctan(abs(vn[2]) / abs(numpy.sqrt(vn[0]**2 + vn[1]**2)))
+    # beta = numpy.pi/2 \
+    # - numpy.arctan(\
+    #                numpy.divide(abs(vn[2]),
+    #                             abs(numpy.sqrt(vn[0]**2 + vn[1]**2))))
     beta = pi/2 - 
-      arctan(abs(vn[3]) / abs(sqrt(vn[1]^2 + vn[2]^2)))
+      atan(abs(vn[3]) / abs(sqrt(vn[1]^2 + vn[2]^2)))
     beta_list = c(beta_list, list(beta))
     
     j = j+1
   }
   
-  list(reverse_list,O1_list,O2_list,alpha_list,beta_list)
+  list(reverse_list=reverse_list,O1_list=O1_list,O2_list=O2_list, 
+       alpha_list=alpha_list,beta_list=beta_list)
 }
 
 # compute angular dislocations at the *free surface* of the half space, 
@@ -487,7 +718,7 @@ get_angular_dislocations_surface = function(self,Y1,Y2,Y3,beta,Odepth) {
   Z3 = sin(beta)*Y1 - a*cos(beta)
   R = sqrt(Y1^2 + Y2^2 + a^2)
   
-  F =  - atan(Y2,Y1) + atan(Y2*R*sin(beta),Y1*Z1 + Y2^2*cos(beta)) + atan(Y2,Z1) 
+  F =  - atan2(Y2,Y1) + atan2(Y2*R*sin(beta),Y1*Z1 + Y2^2*cos(beta)) + atan2(Y2,Z1) 
   
   # Burgers vector (1,0,0)
   
@@ -524,7 +755,9 @@ get_angular_dislocations_surface = function(self,Y1,Y2,Y3,beta,Odepth) {
   v33 = 1/C*(F + Y2*(R*cos(beta) + a)*sin(beta)/(R*(R - Z3)))
   
   
-  list(v11,v12,v13,v21,v22,v23,v31,v32,v33)
+  list(v11=v11,v12=v12,v13=v13,
+       v21=v21,v22=v22,v23=v23,
+       v31=v31,v32=v32,v33=v33)
 }
 
 # compute a unit vector in the slip-direction (rake-direction)
@@ -538,9 +771,12 @@ get_unit_slip_vector = function(subfault) {
   dip = DEG2RAD * subfault$dip
   rake = DEG2RAD * subfault$rake
   
-  e1 = numpy.array([1.,0.,0.])
-  e2 = numpy.array([0.,1.,0.])
-  e3 = numpy.array([0.,0.,-1.])
+  # e1 = numpy.array([1.,0.,0.])
+  # e2 = numpy.array([0.,1.,0.])
+  # e3 = numpy.array([0.,0.,-1.])
+  e1 = c(1,0,0)
+  e2 = c(0,1,0)
+  e3 = c(0,0,-1)
   
   u = sin(strike)*e1 + cos(strike)*e2
   v = cos(strike)*e1 - sin(strike)*e2
@@ -561,12 +797,12 @@ get_unit_slip_vector = function(subfault) {
 # - Note that calculate_geometry() computes 
 # long/lat/strike/dip/length/width to calculate centers/corners
 # JP's notes:
-# corners is 3x3 matrix where each row is (lon, lat, depth) of a single corner
+# corners is 3x3 matrix where each row is (x, y, depth) of a single corner, 
+# where x and y are in Easting and Northing in meters.
 calculate_geometry_triangles = function(corners) {
   
   x0 = corners
   x = x0
-  
   x[,3] = -abs(x[,3]) # set depth to be always negative
   
   if(FALSE) {
@@ -580,27 +816,29 @@ calculate_geometry_triangles = function(corners) {
     v2 = x[3,] - x[1,]
     
     DEG2RAD = 2*pi/360
-    v1[1] *= LAT2METER * cos( DEG2RAD*x[1,2] ) 
-    v2[1] *= LAT2METER * cos( DEG2RAD*x[1,2] ) 
-    v1[2] *= LAT2METER 
-    v2[2] *= LAT2METER
+    v1[1] = v1[1] * LAT2METER * cos( DEG2RAD*x[1,2] ) 
+    v2[1] = v2[1] * LAT2METER * cos( DEG2RAD*x[1,2] ) 
+    v1[2] = v1[2] * LAT2METER 
+    v2[2] = v2[2] * LAT2METER
   } 
   
-  x[,1:2] = projCSZ(x[,1:2])
+  # x[:,0],x[:,1] = self._llz2utm(x[:,0],x[:,1],\
+  #                               projection_zone=self._projection_zone)
+  # x[,1:2] = projCSZ(x[,1:2], units="m")
   
   v1 = x[2,] - x[1,]
   v2 = x[3,] - x[1,]
   
-  browser()
   e3 = c(0,0,1)
-  normal = cross(v1,v2)
+  normal = pracma::cross(v1,v2)
   if(normal[3] < 0) {
     normal = -normal
     fix_orientation = TRUE
   } else {
     fix_orientation = FALSE
   }
-  strikev = cross(normal,e3)   # vector in strike direction
+  # not used for some reason:
+  # strikev = cross(normal,e3)   # vector in strike direction
   
   a = normal[1]
   b = normal[2]
@@ -608,8 +846,8 @@ calculate_geometry_triangles = function(corners) {
   
   #Compute strike
   # strike_deg = rad2deg(arctan(-b/a))
-  RAD2DEG = 360 / 2*pi
-  strike_deg = RAD2DEG * arctan(-b/a)
+  RAD2DEG = 360 / (2*pi)
+  strike_deg = RAD2DEG * atan(-b/a)
   
   #Compute dip
   # beta = deg2rad(strike_deg + 90)
@@ -624,7 +862,9 @@ calculate_geometry_triangles = function(corners) {
     dip_deg = 90   # vertical fault
   } else {
     # dip_deg = rad2deg(arcsin(m.dot(n)/(norm(m)*norm(n))))
-    dip_deg = RAD2DEG * arcsin((m %*% n)/(norm(as.matrix(m))*norm(as.matrix(n))))
+    # browser() # dip and strike are not exactly correct. I think this is due to 
+    # projection issues. Issue seems minor, though
+    dip_deg = RAD2DEG * asin((m %*% n)/(norm(as.matrix(m))*norm(as.matrix(n))))
   }
   
   # dip should be between 0 and 90. If negative, reverse strike:
@@ -636,6 +876,10 @@ calculate_geometry_triangles = function(corners) {
     stop(paste0("dip_deg = ", dip_deg, ", but must be between 0 and 90"))
   }
   
+  if(dip_deg > 30) {
+    browser()
+  }
+  
   # keep strike_deg positive
   if(strike_deg < 0) {
     strike_deg = 360 + strike_deg
@@ -645,7 +889,7 @@ calculate_geometry_triangles = function(corners) {
   }
   
   strike = strike_deg
-  dip = dip_deg
+  dip = c(dip_deg)
   
   # find the center line
   xx = matrix(0, nrow=3, ncol=3)
@@ -653,11 +897,14 @@ calculate_geometry_triangles = function(corners) {
   xx[2,] = (x0[1,] + x0[3,]) / 2. # midpt opposite b
   xx[3,] = (x0[1,] + x0[2,]) / 2. # midpt opposite c
   
+  # centers seems to be [longitude, easting (m)] of furthest south point?
+  # Doesn't make sense, but centers doesn't seem to be used anywhere so it's 
+  # fine
+  # i = numpy.argmin(xx[2,:])
   i = which.min(xx[3,])
   
-  browser()
   # centers = [x[,i].tolist(), xx[,i].tolist()]
-  centers = [x[,i].tolist(), xx[,i].tolist()]
+  centers = cbind(x[,i], xx[,i])
   
   if(x[3,i] <= xx[3,i]) {
     # self._centers.reverse()
@@ -665,10 +912,13 @@ calculate_geometry_triangles = function(corners) {
   }
   
   # xcenter = numpy.mean(xx, axis=0)
+  # longitude = xcenter[0]
+  # latitude = xcenter[1]
+  # depth = xcenter[2]
   xcenter = colMeans(xx)
-  longitude = xcenter[0]
-  latitude = xcenter[1]
-  depth = xcenter[2]
+  longitude = xcenter[1]
+  latitude = xcenter[2]
+  depth = xcenter[3]
   
   # length and width are set to sqrt(area): 
   # this is set temporarily so that Fault.Mw() can be computed
@@ -677,7 +927,11 @@ calculate_geometry_triangles = function(corners) {
   length = sqrt(area)
   width = sqrt(area)
   
-  list(centers=centers, lon=longitude, lat=latitude, depth=depth, strike=strike, dip=dip)
+  # a list summarizing the subfault
+  list(corners=corners, centers=centers, 
+       lon=longitude, lat=latitude, 
+       depth=depth, strike=strike, dip=dip, 
+       fix_orientation=fix_orientation)
 }
 
 # compute coordinates
@@ -699,29 +953,45 @@ calculate_geometry_triangles = function(corners) {
 # containing *angular* coordinates as well as its mirrored image
 get_halfspace_coords = function(subfault,X1,X2,X3,alpha,beta,Olong,Olat,Odepth) {
   
-  dims = X1.shape
+  dims = dim(X1)
   Odepth = abs(Odepth)
   
   # convert lat/long to meters
   DEG2RAD = 2*pi/360
+  LAT2METER = 111133.84012073894 #/10^3
   X1 = LAT2METER * cos( DEG2RAD*subfault$lat ) * (X1 - Olong)
   X2 = LAT2METER * (X2 - Olat)
   
-  Y1 = numpy.zeros(dims)       # yi-coordinates
-  Y2 = numpy.zeros(dims)       # yi-coordinates
-  Y3 = numpy.zeros(dims)       # yi-coordinates
+  # Y1 = numpy.zeros(dims)       # yi-coordinates
+  # Y2 = numpy.zeros(dims)       # yi-coordinates
+  # Y3 = numpy.zeros(dims)       # yi-coordinates
+  # 
+  # Z1 = numpy.zeros(dims)       # yi coordinates rot. by beta
+  # Z2 = numpy.zeros(dims)       # yi coordinates rot. by beta
+  # Z3 = numpy.zeros(dims)       # yi coordinates rot. by beta
+  # 
+  # Yb1 = numpy.zeros(dims)    # mirrored yi-coordinates
+  # Yb2 = numpy.zeros(dims)    # mirrored yi-coordinates
+  # Yb3 = numpy.zeros(dims)    # mirrored yi-coordinates
+  # 
+  # Zb1 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
+  # Zb2 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
+  # Zb3 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
+  Y1 =  matrix(0, nrow=dims[1], ncol=dims[2])       # yi-coordinates
+  Y2 =  matrix(0, nrow=dims[1], ncol=dims[2])       # yi-coordinates
+  Y3 =  matrix(0, nrow=dims[1], ncol=dims[2])       # yi-coordinates
   
-  Z1 = numpy.zeros(dims)       # yi coordinates rot. by beta
-  Z2 = numpy.zeros(dims)       # yi coordinates rot. by beta
-  Z3 = numpy.zeros(dims)       # yi coordinates rot. by beta
+  Z1 =  matrix(0, nrow=dims[1], ncol=dims[2])       # yi coordinates rot. by beta
+  Z2 =  matrix(0, nrow=dims[1], ncol=dims[2])       # yi coordinates rot. by beta
+  Z3 =  matrix(0, nrow=dims[1], ncol=dims[2])       # yi coordinates rot. by beta
   
-  Yb1 = numpy.zeros(dims)    # mirrored yi-coordinates
-  Yb2 = numpy.zeros(dims)    # mirrored yi-coordinates
-  Yb3 = numpy.zeros(dims)    # mirrored yi-coordinates
+  Yb1 = matrix(0, nrow=dims[1], ncol=dims[2])    # mirrored yi-coordinates
+  Yb2 = matrix(0, nrow=dims[1], ncol=dims[2])    # mirrored yi-coordinates
+  Yb3 = matrix(0, nrow=dims[1], ncol=dims[2])    # mirrored yi-coordinates
   
-  Zb1 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
-  Zb2 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
-  Zb3 = numpy.zeros(dims)    # mirrored yi-coordinates rot. by beta
+  Zb1 = matrix(0, nrow=dims[1], ncol=dims[2])    # mirrored yi-coordinates rot. by beta
+  Zb2 = matrix(0, nrow=dims[1], ncol=dims[2])    # mirrored yi-coordinates rot. by beta
+  Zb3 = matrix(0, nrow=dims[1], ncol=dims[2])    # mirrored yi-coordinates rot. by beta
   
   # rotate by -alpha in long/lat plane
   Y1 = sin(alpha)*X1 + cos(alpha)*X2
@@ -740,8 +1010,83 @@ get_halfspace_coords = function(subfault,X1,X2,X3,alpha,beta,Olong,Olat,Odepth) 
   Zb2 =  Y2
   Zb3 = -sin(beta)*Y1 + cos(beta)*Yb3
   
-  list(Y1,Y2,Y3,Z1,Z2,Z3,Yb1,Yb2,Yb3,Zb1,Zb2,Zb3)
+  list(Y1=Y1,Y2=Y2,Y3=Y3,
+       Z1=Z1,Z2=Z2,Z3=Z3,
+       Yb1=Yb1,Yb2=Yb2,Yb3=Yb3,
+       Zb1=Zb1,Zb2=Zb2,Zb3=Zb3)
 }
 
+# compute coordinate transforms by computing 
+# 
+#  [sin  cos   0] [v11 v12 v13] [sin  cos   0]
+#  |cos -sin   0| |v21 v22 v23| |cos -sin   0|
+#  [  0    0   1] [v31 v32 v33] [  0    0   1]
+# 
+coord_transform = function(subfault,v11,v12,v13,v21,v22,v23,v31,v32,v33,alpha) {
+  
+  w11 = sin(alpha)*v11 + cos(alpha)*v12
+  w12 = cos(alpha)*v11 - sin(alpha)*v12
+  w13 = v13
+  
+  w21 = sin(alpha)*v21 + cos(alpha)*v22
+  w22 = cos(alpha)*v21 - sin(alpha)*v22
+  w23 = v23
+  
+  w31 = sin(alpha)*v31 + cos(alpha)*v32
+  w32 = cos(alpha)*v31 - sin(alpha)*v32
+  w33 = v33
+  
+  v11 = sin(alpha)*w11 + cos(alpha)*w21
+  v12 = sin(alpha)*w12 + cos(alpha)*w22
+  v13 = sin(alpha)*w13 + cos(alpha)*w23
+  
+  v21 = cos(alpha)*w11 - sin(alpha)*w21
+  v22 = cos(alpha)*w12 - sin(alpha)*w22
+  v23 = cos(alpha)*w13 - sin(alpha)*w23
+  
+  v31 = w31
+  v32 = w32
+  v33 = w33
+  
+  list(v11=v11,v12=v12,v13=v13,
+       v21=v21,v22=v22,v23=v23,
+       v31=v31,v32=v32,v33=v33)
+}
 
-
+# _llz2utm = function(self,lon,lat,projection_zone=NULL) {
+#   # Convert lat,lon to UTM
+#   # 
+#   # originally written by Diego Melgar (Univ of Oregon)
+#   
+#   
+#   array_dims = lon.shape
+# 
+#   lon = lon.flatten()
+#   lat = lat.flatten()
+# 
+#   x=zeros(lon.shape)
+#   y=zeros(lon.shape)
+#   zone=zeros(lon.shape)
+#   
+#   #b=chararray(lon.shape) # gives byte error
+#   # b=len(lon)*['A']  # list of characters, modified in loop below
+#   b=rep('A', length(lon))  # list of characters, modified in loop below
+#   if(is.null(projection_zone)) {
+#     #Determine most suitable UTM zone
+#     for(k in range(len(lon))) {
+#       x,y,zone[k],b[k]=utm.from_latlon(lat[k],lon[k])
+#     }
+#       zone_mode=mode(zone)
+#       i=where(zone==zone_mode)[0]
+#       letter=b[i[0]]
+#       z=str(int(zone[0]))+letter
+#   } else {
+#     z=projection_zone
+#   }
+#   p0 = Proj(proj='utm',zone=z,ellps='WGS84')
+#   x,y=p0(lon,lat)
+#   
+#   x = x.reshape(array_dims)
+#   y = y.reshape(array_dims)
+#   list(x,y)
+# }

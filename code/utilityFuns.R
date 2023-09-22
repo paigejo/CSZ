@@ -23,8 +23,9 @@ getMomentFromSlip = function(slips, rigidity=4*10^10, doTaper=FALSE, lambda=1, f
 # (EPSG:32610) or back if inverse==TRUE.
 # x: a matrix of points, where each row is the coordinates of a single point
 # inverse: if FALSE, converts from lon/lat to utm, else does the reverse
-# units: currently not used
-projCSZ = function(x, inverse=FALSE, units=c("m", "km")) {
+# units: either "km" (the default) or "m". Sets the input units if 
+#        inverse==TRUE or the output units otherwise
+projCSZ = function(x, inverse=FALSE, units=c("km", "m")) {
   units = match.arg(units)
   
   # determine the "to" projection systems
@@ -41,7 +42,7 @@ projCSZ = function(x, inverse=FALSE, units=c("m", "km")) {
   
   # convert to an sf object
   x = st_multipoint(x, dim="XY")
-  if(inverse) {
+  if(inverse && (units == "km")) {
     # make sure we convert from km back to m as the projection is expecting
     x = x*1000
   }
@@ -63,13 +64,54 @@ projCSZ = function(x, inverse=FALSE, units=c("m", "km")) {
   out = st_coordinates(out)[,1:2]
   
   # convert from m to km if necessary
-  if(toProj == utmProj) {
+  if((toProj == utmProj) && (units == "km")) {
     out = out/1000
   }
   
   out
 }
 
+# same as projCSZ, but under old projection system used by geoclaw
+projCSZ2 = function(x, inverse=FALSE, units=c("km", "m")) {
+  units = match.arg(units)
+  
+  DEG2RAD = 2*pi/360
+  LAT2METER = 111133.84012073894 #/10^3
+  if(units == "km") {
+    LAT2METER = LAT2METER / 10^3
+  }
+  
+  # do the projection
+  if(!inverse) {
+    # from lon/lat to m
+    
+    LON2METER = LAT2METER * cos( DEG2RAD*x[,2] ) 
+    
+    LONLAT2METER = cbind(LON2METER, LAT2METER)
+    scales = LONLAT2METER
+  } else {
+    # from m to lon/lat
+    lats = x[,2] * (1/LAT2METER)
+    LON2METER = LAT2METER * cos( DEG2RAD*lats ) 
+    
+    LONLAT2METER = cbind(LON2METER, LAT2METER)
+    scales = 1/LONLAT2METER
+  }
+  
+  # return scaled coordinates
+  x * scales
+}
 
+# round vector of coordinates to the given grid of equally spaced points
+roundToGrid = function(coordVec, coordGrid, returnInds=FALSE) {
+  inds = (coordVec - min(coordGrid))/(max(coordGrid) - min(coordGrid))
+  inds = round(inds*(length(coordGrid)-1)) + 1
+  
+  if(returnInds) {
+    return(inds)
+  } else {
+    return(coordGrid[inds])
+  }
+}
 
 
