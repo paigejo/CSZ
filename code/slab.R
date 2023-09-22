@@ -97,7 +97,8 @@ loadSlab2 = function() {
 # cutoff: minimum allowable edge length in km
 # ...: other inputs passed to inla.mesh.2d
 discretizeSlab2 = function(n=2000, max.n=-1, max.edge=c(15, 100), maxDepth=30, 
-                           cutoff=3, ...) {
+                           cutoff=3, method=c("NN", "kernel"), ...) {
+  method = match.arg(method)
   
   # first load in the Slab 2.0 geometry
   slab = loadSlab2()
@@ -118,13 +119,30 @@ discretizeSlab2 = function(n=2000, max.n=-1, max.edge=c(15, 100), maxDepth=30,
   xy = xy[goodI,]
   depths = depths[goodI]
   
-  # compute convex hull of slab geometry
+  # compute concave hull of slab geometry
   # hullI = chull(xy)
   # xyHull = xy[hullI,]
-  hullInt = inla.nonconvex.hull.basic(xy, resolution=350, convex=-.012)
-  xyHull = hullInt$loc
+  
+  require(concaveman)
+  
+  concaveHull = concaveman(xy)
+  
+  plot(xy, pch=".", asp=1)
+  polygon(concaveHull, border="blue")
+  
+  concaveInt = inla.mesh.segment(concaveHull, is.bnd=FALSE)
+  # make sure concaveInt is in a format expected by inla.mesh.2d
+  concaveInt$idx = rbind(concaveInt$idx, c(nrow(concaveInt$loc), 1))
+  concaveInt$idx = matrix(as.integer(concaveInt$idx), ncol=2)
+  concaveInt$grp = matrix(rep(as.integer(1), nrow(concaveInt$loc)), ncol=1)
+  concaveInt$loc = matrix(concaveInt$loc, ncol=2)
+  concaveInt$loc = concaveInt$loc[nrow(concaveInt$loc):1, ]
   
   hullExt = inla.nonconvex.hull.basic(xy, resolution=150, convex=-.4)
+  
+  # construct mesh with INLA
+  mesh = inla.mesh.2d(n=n, boundary=list(concaveInt, hullExt), max.n=max.n, 
+                      max.edge=max.edge, cutoff=cutoff, ...)
   
   if(FALSE) {
     plotWithColor(xy[,1], xy[,2], depths, pch=19, cex=.3, xlab="Easting (km)", 
@@ -132,24 +150,30 @@ discretizeSlab2 = function(n=2000, max.n=-1, max.edge=c(15, 100), maxDepth=30,
     polygon(xyHull[,1], xyHull[,2], border="green")
   }
   
-  # construct mesh with INLA
-  # mesh = inla.mesh.2d(n=n, loc.domain=xyHull, max.edge=max.edge, ...)
-  # mesh = inla.mesh.2d(n=n, boundary=hullInt, max.edge=max.edge, ...)
-  mesh = inla.mesh.2d(n=n, boundary=list(hullInt, hullExt), max.n=max.n, 
-                      max.edge=max.edge, cutoff=cutoff, ...)
-  
   if(FALSE) {
+    # old way to construct interior boundary:
+    # hullInt = inla.nonconvex.hull.basic(xy, resolution=350, convex=-.012)
+    # xyHull = hullInt$loc
+    # 
+    # mesh = inla.mesh.2d(n=n, boundary=list(hullInt, hullExt), max.n=max.n, 
+    #                     max.edge=max.edge, cutoff=cutoff, ...)
+    
     # plot the mesh
     plot(mesh, asp=1)
-    # points(xy[,1], xy[,2], col="red", pch=".")
+    points(xy[,1], xy[,2], col="red", pch=".")
+    plot(xy[,1], xy[,2], pch=".", col="blue")
+    polygon(concaveHull)
   }
   
-  faultGeom = getGeomFromMesh(mesh, extent=hullInt$loc, maxDepth=maxDepth)
+  faultGeom = getGeomFromMesh(mesh, extent=concaveHull, maxDepth=maxDepth, 
+                              method=method)
   
-  c(faultGeom, list(extent=hullInt$loc, maxDepth=maxDepth))
+  c(faultGeom, list(extent=concaveHull, maxDepth=maxDepth))
 }
 
-getGeomFromMesh = function(mesh, extent, maxDepth=30) {
+getGeomFromMesh = function(mesh, extent, maxDepth=30, method=c("NN", "kernel")) {
+  method = match.arg(method)
+  
   corners = mesh$loc[,1:2] # corners of the triangles, i.e. vertices
   
   # t: triangles, v: vertices
@@ -177,13 +201,14 @@ getGeomFromMesh = function(mesh, extent, maxDepth=30) {
   }
   
   # get depths at all points
-  allDepths = getPointDepths(rbind(centers, corners), maxDepth=maxDepth)
+  allDepths = getPointDepths(rbind(centers, corners), maxDepth=maxDepth, method=method)
   centerDepths = allDepths[1:nrow(centers)]
   allCornerDepths = allDepths[-(1:nrow(centers))]
   
   # add depths to coordinates
   centers = data.frame(list(lon=centers[,1], lat=centers[,2], depth=centerDepths))
   goodTri = rep(TRUE, nrow(centers)) # good if has some dip
+  internalI = rep(TRUE, nrow(centers)) # all corners within extent
   for(i in 1:nT) {
     vInds = tv[i,]
     thisDepths = allCornerDepths[vInds]
@@ -191,12 +216,16 @@ getGeomFromMesh = function(mesh, extent, maxDepth=30) {
     if(all(thisDepths == thisDepths[1])) {
       goodTri[i] = FALSE
     }
+    if(any(!fields::in.poly(triCorners[[i]][,1:2], extent))) {
+      internalI[i] = FALSE
+    }
     triCorners[[i]] = data.frame(lon=triCorners[[i]][,1], lat=triCorners[[i]][,2], 
                                  depth=thisDepths)
   }
   
   # determine which triangles are in the fault extent
-  internalI = fields::in.poly(centers, extent)
+  # internalI = fields::in.poly(centers, extent)
+  
   internalCenters = centers[internalI,]
   externalCenters = centers[!internalI,]
   internalTriCorners = list()
@@ -310,19 +339,33 @@ getPointDepths = function(pts, maxDepth=Inf, method=c("NN", "kernel"), res=1) {
     #                                     xout=pts, crosscov=TRUE))[3]
     # totTime = system.time(out <- Lwls2D(bw=5, kern="epan", xin=xy, yin=depths, 
     #                                     xout1=xgrid, xout2=ygrid))[3]
-    # totTime = system.time(out <- Lwls2D(bw=4, kern="epan", xin=xy, yin=depths, 
+    # totTime = system.time(out <- Lwls2D(bw=4, kern="gauss", xin=xy, yin=depths,
     #                                     xout1=xgrid, xout2=ygrid, crosscov=TRUE))[3]
+    # ptsDepths = out[cbind(xinds, yinds)]
+    # totTime/60
+    # 6.678383
     
     # smooth.2d(Y, ind = NULL, weight.obj = NULL, setup = FALSE, grid = NULL,
     #           x = NULL, nrow = 64, ncol = 64, surface = TRUE, cov.function =
     #             gauss.cov, Mwidth = NULL, Nwidth = NULL, ...)
+    
     totTime = system.time(out <- smooth.2d(Y=depths, x=xy, grid=list(x=xgrid, y=ygrid), 
-                                           aRange=2))[3]
+                                           aRange=4))[3]
     # totTime/60
     # 0.1844333 # for res=1
     # 0.61845 # for res=.5
     # 3.374683 # for res=.25 (but actually more like 2 minutes on laptop...)
     ptsDepths = out$z[cbind(xinds, yinds)]
+    
+    if(FALSE) {
+      
+      plotWithColor(pts[,1], pts[,2], ptsDepths, zlim=c(-40, 0), 
+                    asp=1, forceColorsInRange=TRUE, cex=.2, pch=19, 
+                    xlim=range(xgrid), ylim=range(ygrid))
+      plotWithColor(xy[,1], xy[,2], depths, zlim=c(-40, 0), 
+                    asp=1, forceColorsInRange=TRUE, cex=.2, pch=19, 
+                    xlim=range(xgrid), ylim=range(ygrid))
+    }
     
     return(ptsDepths)
   } else if(method == "NN") {

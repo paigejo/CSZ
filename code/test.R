@@ -137,9 +137,54 @@ testTrianglesVsRect = function(nDown=150, nStrike=200, slip=100) {
   print(dtopoRect)
 }
 
+testFaultDepthCalc = function() {
+  browser()
+  triGeom1 = discretizeSlab2(method="kernel")
+  triGeom2 = discretizeSlab2(method="NN")
+  
+  for(i in 1:length(triGeom1$corners)) {
+    triGeom1$corners[[i]][,1:2] = projCSZ(as.matrix(triGeom1$corners[[i]][,1:2]), inverse=TRUE, units="km")
+  }
+  for(i in 1:length(triGeom2$corners)) {
+    triGeom2$corners[[i]][,1:2] = projCSZ(as.matrix(triGeom2$corners[[i]][,1:2]), inverse=TRUE, units="km")
+  }
+  
+  if(FALSE) {
+    centerDepths1 = triGeom1$centers[,3]
+    plotPolyDat(triGeom1$corners, centerDepths1, border=rgb(0,0,0,0))
+    
+    centerDepths2 = triGeom2$centers[,3]
+    plotPolyDat(triGeom2$corners, centerDepths2, border=rgb(0,0,0,0))
+  }
+  
+  browser()
+  
+  triGeomFull1 = getFullFaultGeom(triangulatedGeom=triGeom1)
+  triGeomFull2 = getFullFaultGeom(triangulatedGeom=triGeom2)
+  
+  # plot fault
+  if(FALSE) {
+    centerDepths1 = sapply(triGeomFull1, function(x) {x$depth})
+    strikes1 = sapply(triGeomFull1, function(x) {x$strike})
+    dips1 = sapply(triGeomFull1, function(x) {x$dip})
+    
+    centerDepths2 = sapply(triGeomFull2, function(x) {x$depth})
+    strikes2 = sapply(triGeomFull2, function(x) {x$strike})
+    dips2 = sapply(triGeomFull2, function(x) {x$dip})
+    
+    plotPolyDat(triGeom1$corners, centerDepths1, border=rgb(0,0,0,0))
+    plotPolyDat(triGeom1$corners, strikes1, border=rgb(0,0,0,0))
+    plotPolyDat(triGeom1$corners, dips1, border=rgb(0,0,0,0))
+    
+    plotPolyDat(triGeom2$corners, centerDepths2, border=rgb(0,0,0,0))
+    plotPolyDat(triGeom2$corners, strikes2, border=rgb(0,0,0,0))
+    plotPolyDat(triGeom2$corners, dips2, border=rgb(0,0,0,0))
+  }
+}
+
 testFullFault = function() {
   browser()
-  triGeom = discretizeSlab2()
+  triGeom = discretizeSlab2(method="kernel")
   
   # convert coordinates back to lon/lat as expected by getFullFaultGeom()
   for(i in 1:length(triGeom$corners)) {
@@ -151,9 +196,6 @@ testFullFault = function() {
   # plot fault
   if(FALSE) {
     centerDepths = sapply(triGeomFull, function(x) {x$depth})
-    cornerDepth1 = sapply(triGeomFull, function(x) {x$corners[1,3]})
-    cornerDepth2 = sapply(triGeomFull, function(x) {x$corners[2,3]})
-    cornerDepth3 = sapply(triGeomFull, function(x) {x$corners[3,3]})
     strikes = sapply(triGeomFull, function(x) {x$strike})
     dips = sapply(triGeomFull, function(x) {x$dip})
     
