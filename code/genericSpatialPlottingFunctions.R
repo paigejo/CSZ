@@ -433,12 +433,18 @@ plotMapDat = function(mapDat, plotVar=NULL, varAreas, regionNames=sort(unique(va
     if(project) {
       if(is.null(xlab))
         xlab = "East (km)"
-      if(is.null(xlim))
-        xlim = eastLim
       if(is.null(ylab))
         ylab = "North (km)"
-      if(is.null(ylim))
-        ylim = northLim
+      if(is.null(xlim) || is.null(ylim)) {
+        bbox = t(myProjection(t(mapDat@bbox)))
+        if(is.null(xlim)) {
+          xlim = bbox[1,]
+        }
+        if(is.null(ylim)) {
+          ylim = bbox[2,]
+        }
+      }
+      
     }
     else {
       if(is.null(xlab))

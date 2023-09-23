@@ -150,9 +150,12 @@ okadaSubfaultRect = function(row, x, y, slip=0, rake=90, poisson=0.25, inds=NULL
   
   # Convert distance from (X,Y) to (x_bottom,y_bottom) from degrees to
   # meters:
-  LAT2METER = 111133.84012073894 #/10^3
-  xx = LAT2METER * cos(DEG2RAD * Y) * (X - x_bottom)   
-  yy = LAT2METER * (Y - y_bottom)
+  # LAT2METER = 111133.84012073894 #/10^3
+  # xx = LAT2METER * cos(DEG2RAD * Y) * (X - x_bottom)   
+  # yy = LAT2METER * (Y - y_bottom)
+  out = projCSZ(cbind(c(X - x_bottom)   , c(Y - y_bottom)), units="m")
+  xx = matrix(out[,1], nrow=nrow(X))
+  yy = matrix(out[,2], nrow=nrow(Y))
   
   # if user only wants a subset of seaDefs given by inds, subset now to save time
   if(!is.null(inds)) {
@@ -617,12 +620,13 @@ get_leg_angles = function(subfault) {
   
   # convert to meters
   DEG2RAD = 2*pi/360
-  LAT2METER = 111133.84012073894 #/10^3
-  # y[:,0] = LAT2METER * cos( DEG2RAD*self.latitude )*x[:,0]
-  # y[:,1] = LAT2METER * x[:,1]
-  # y[:,2] = - abs(x[:,2])    # force sign
-  y[,1] = LAT2METER * cos( DEG2RAD*subfault$lat)*x[,1]
-  y[,2] = LAT2METER * x[,2]
+  # LAT2METER = 111133.84012073894 #/10^3
+  # # y[:,0] = LAT2METER * cos( DEG2RAD*self.latitude )*x[:,0]
+  # # y[:,1] = LAT2METER * x[:,1]
+  # # y[:,2] = - abs(x[:,2])    # force sign
+  # y[,1] = LAT2METER * cos( DEG2RAD*subfault$lat)*x[,1]
+  # y[,2] = LAT2METER * x[,2]
+  y[,1:2] = projCSZ(y[,1:2], units="m")
   y[,3] = - abs(x[,3])    # force sign
   
   # v_list = [y[0,:] - y[1,:], y[1,:] - y[2,:], y[2,:] - y[0,:]]
@@ -958,9 +962,12 @@ get_halfspace_coords = function(subfault,X1,X2,X3,alpha,beta,Olong,Olat,Odepth) 
   
   # convert lat/long to meters
   DEG2RAD = 2*pi/360
-  LAT2METER = 111133.84012073894 #/10^3
-  X1 = LAT2METER * cos( DEG2RAD*subfault$lat ) * (X1 - Olong)
-  X2 = LAT2METER * (X2 - Olat)
+  # LAT2METER = 111133.84012073894 #/10^3
+  # X1 = LAT2METER * cos( DEG2RAD*subfault$lat ) * (X1 - Olong)
+  # X2 = LAT2METER * (X2 - Olat)
+  out = projCSZ(cbind(c(X1 - Olong), c(X2 - Olat)), units="m")
+  X1 = matrix(out[,1], nrow=nrow(X1))
+  X2 = matrix(out[,2], nrow=nrow(X2))
   
   # Y1 = numpy.zeros(dims)       # yi-coordinates
   # Y2 = numpy.zeros(dims)       # yi-coordinates

@@ -73,6 +73,7 @@ projCSZ = function(x, inverse=FALSE, units=c("km", "m")) {
 
 # same as projCSZ, but under old projection system used by geoclaw
 projCSZ2 = function(x, inverse=FALSE, units=c("km", "m")) {
+  stop("use projCSZ, not projCSZ2...")
   units = match.arg(units)
   
   DEG2RAD = 2*pi/360
@@ -84,6 +85,10 @@ projCSZ2 = function(x, inverse=FALSE, units=c("km", "m")) {
   # do the projection
   if(!inverse) {
     # from lon/lat to m
+    # DEG2RAD = 2*pi/360
+    # LAT2METER = 111133.84012073894 #/10^3
+    # y[,1] = LAT2METER * cos( DEG2RAD*subfault$lat)*x[,1]
+    # y[,2] = LAT2METER * x[,2]
     
     LON2METER = LAT2METER * cos( DEG2RAD*x[,2] ) 
     

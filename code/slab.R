@@ -28,16 +28,17 @@ getFullFaultGeom = function(triangulatedGeom=NULL, n=2000, max.n=-1, max.edge=c(
   
   # now convert to the format used by okadaTri
   faultGeom = list()
+  # browser()
   for(i in 1:length(cornerList)) {
     thisCorners = as.matrix(cornerList[[i]])
-    thisCorners[,3] = thisCorners[,3]*10^3
+    thisCorners[,3] = thisCorners[,3]*10^3 # km to m
     
     # calculate the geometry of the subfault
-    triGeom = calculate_geometry_triangles(cbind(projCSZ2(thisCorners[,1:2], units="m"), thisCorners[,3]))
+    triGeom = calculate_geometry_triangles(cbind(projCSZ(thisCorners[,1:2], units="m"), thisCorners[,3]))
     
     # reset to unprojected coordinates as expect by okadaTri
     triGeom$corners = thisCorners
-    lonLat = projCSZ2(cbind(triGeom$lon, triGeom$lat), inverse=TRUE, units="m")
+    lonLat = projCSZ(cbind(triGeom$lon, triGeom$lat), inverse=TRUE, units="m")
     triGeom$lon = lonLat[1]
     triGeom$lat = lonLat[2]
     

@@ -97,15 +97,15 @@ testTrianglesVsRect = function(nDown=150, nStrike=200, slip=100) {
   rectGeom = out$rectGeom
   
   # project corners into E/N and calculate geometries
-  triGeom1 = calculate_geometry_triangles(cbind(projCSZ2(tri1[,1:2], units="m"), tri1[,3]))
-  triGeom2 = calculate_geometry_triangles(cbind(projCSZ2(tri2[,1:2], units="m"), tri2[,3]))
+  triGeom1 = calculate_geometry_triangles(cbind(projCSZ(tri1[,1:2], units="m"), tri1[,3]))
+  triGeom2 = calculate_geometry_triangles(cbind(projCSZ(tri2[,1:2], units="m"), tri2[,3]))
   # triGeom2 = calculate_geometry_triangles(tri2)
   
   # convert x/y back to lon/lat
   triGeom1$corners = tri1
   triGeom2$corners = tri2
-  lonLat1 = projCSZ2(cbind(triGeom1$lon, triGeom1$lat), inverse=TRUE, units="m")
-  lonLat2 = projCSZ2(cbind(triGeom2$lon, triGeom2$lat), inverse=TRUE, units="m")
+  lonLat1 = projCSZ(cbind(triGeom1$lon, triGeom1$lat), inverse=TRUE, units="m")
+  lonLat2 = projCSZ(cbind(triGeom2$lon, triGeom2$lat), inverse=TRUE, units="m")
   triGeom1$lon = lonLat1[1]
   triGeom1$lat = lonLat1[2]
   triGeom2$lon = lonLat2[1]
@@ -152,6 +152,9 @@ testFaultDepthCalc = function() {
   if(FALSE) {
     centerDepths1 = triGeom1$centers[,3]
     plotPolyDat(triGeom1$corners, centerDepths1, border=rgb(0,0,0,0))
+    
+    plotPolyDat(triGeom1$corners, centerDepths1, border=rgb(0,0,0,0), project=TRUE, myProjection=projCSZ)
+    # plotPolyDat(triGeom1$corners, centerDepths1, border=rgb(0,0,0,0), project=TRUE, myProjection=projCSZ2)
     
     centerDepths2 = triGeom2$centers[,3]
     plotPolyDat(triGeom2$corners, centerDepths2, border=rgb(0,0,0,0))
