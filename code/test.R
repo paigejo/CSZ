@@ -278,21 +278,23 @@ testFullFault = function() {
   }
   
   # get lon/lat range
-  allExtCorners = do.call("rbind", triGeom$externalTriangulation$corners)
-  lonLat = projCSZ(as.matrix(allExtCorners[,1:2]), inverse=TRUE)
-  lonRange = range(lonLat[,1])
-  latRange = range(lonLat[,2])
+  # allExtCorners = do.call("rbind", triGeom$externalTriangulation$corners)
+  # lonLat = projCSZ(as.matrix(allExtCorners[,1:2]), inverse=TRUE)
+  # lonRange = range(lonLat[,1])
+  # latRange = range(lonLat[,2])
+  lonRange = c(-128.5, -122)
+  latRange = c(40, 51)
   
   # run Okada model on full fault
-  lonTest = seq(lonRange[1], lonRange[2], l=50)
-  latTest = seq(latRange[1], latRange[2], l=50)
+  lonTest = seq(lonRange[1], lonRange[2], l=100)
+  latTest = seq(latRange[1], latRange[2], l=100)
   
   browser()
   
   totTime = system.time(dtopoAll <- okadaTri(triGeomFull, x=lonTest, y=latTest, slip=10))[3]
   # totTime/60
   # elapsed 
-  # 14.57328
+  # 16.09122
   
   depths = sapply(triGeomFull, function(x) {x$depth})
   strikes = sapply(triGeomFull, function(x) {x$strike})
@@ -320,13 +322,13 @@ testFullFault = function() {
   # plotPolyDat(triGeom$corners, border=rgb(0, 0, 0, 0.05), lwd=.3, new=FALSE)
   # map("usa", add=TRUE)
   world(add=TRUE)
-  polygon(projCSZ(triGeom$extent, inverse=TRUE), border="purple")
+  polygon(projCSZ(triGeom$extent, inverse=TRUE), border="purple", lwd=.75)
   
   plotWithColor(ENTest[,1], ENTest[,2], c(dtopoAll$dZ), 
                 xlab="Easting (km)", ylab="Northing (km)", 
                 pch=19, cex=.1, asp=1)
   # plotPolyDat(triGeom$corners, border=rgb(0, 0, 0, 0.05), lwd=.3, new=FALSE)
-  polygon(triGeom$extent, border="purple")
+  polygon(triGeom$extent, border="purple", lwd=.75)
 }
 
 
