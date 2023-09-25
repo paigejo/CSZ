@@ -32,12 +32,20 @@ projCSZ = function(x, inverse=FALSE, units=c("km", "m")) {
   utmProj = st_crs("EPSG:32610")
   lonLatProj = st_crs("EPSG:4326")
   
+  origin = c(300, 5000) # set origin in EN (in km) to avoid numerical roundoff
+  
+  if(units == "m") {
+    origin = origin * 10^3
+  }
+  
   if(!inverse) {
     toProj = utmProj
     fromProj = lonLatProj
   } else {
     toProj = lonLatProj
     fromProj = utmProj
+    
+    x = sweep(x, 2, origin, FUN="+") # add origin to coordinates
   }
   
   # convert to an sf object
@@ -61,11 +69,15 @@ projCSZ = function(x, inverse=FALSE, units=c("km", "m")) {
   
   # transform coordinates and convert back to a matrix
   out = st_transform(x, toProj)
-  out = st_coordinates(out)[,1:2]
+  out = matrix(st_coordinates(out)[,1:2], ncol=2)
   
   # convert from m to km if necessary
   if((toProj == utmProj) && (units == "km")) {
     out = out/1000
+  }
+  
+  if(!inverse) {
+    out = sweep(out, 2, origin) # subtract origin from coordinates
   }
   
   out

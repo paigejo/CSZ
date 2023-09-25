@@ -96,9 +96,11 @@ loadSlab2 = function() {
 # max.edge: maximum triangle edge length in km (for making triangle regular)
 # maxDepth: maximum depth of the fault geometry
 # cutoff: minimum allowable edge length in km
+# method: either linear, nearest neighbor, r Gaussian kernel smoother 
+#         interpolation of the fault geometry. Defaults to linear
 # ...: other inputs passed to inla.mesh.2d
 discretizeSlab2 = function(n=2000, max.n=-1, max.edge=c(15, 100), maxDepth=30, 
-                           cutoff=3, method=c("NN", "kernel"), ...) {
+                           cutoff=3, method=c("linear", "NN", "kernel"), ...) {
   method = match.arg(method)
   
   # first load in the Slab 2.0 geometry
@@ -172,7 +174,16 @@ discretizeSlab2 = function(n=2000, max.n=-1, max.edge=c(15, 100), maxDepth=30,
   c(faultGeom, list(extent=concaveHull, maxDepth=maxDepth))
 }
 
-getGeomFromMesh = function(mesh, extent, maxDepth=30, method=c("NN", "kernel")) {
+# given a triangulated mesh constructed from discretizeSlab2, constructs 
+# a list of triangle centers and corners (also lists of external triangles 
+# that are later ignored). Calculated the depths of each point in the geometry.
+# inputs:
+# mesh: triangulated mesh object from inla.mesh.2d
+# extent: points of a polygon describing the extent of the fault geometry
+# maxDepth: maximum depth of the fault geometry to use for depth interpolation. 
+#           Should be slightly deeper than the extent, e.g. 1km deeper
+# method: method used in getPointDepths for depth interpolation
+getGeomFromMesh = function(mesh, extent, maxDepth=30, method=c("linear", "NN", "kernel")) {
   method = match.arg(method)
   
   corners = mesh$loc[,1:2] # corners of the triangles, i.e. vertices
@@ -214,7 +225,7 @@ getGeomFromMesh = function(mesh, extent, maxDepth=30, method=c("NN", "kernel")) 
     vInds = tv[i,]
     thisDepths = allCornerDepths[vInds]
     
-    if(all(thisDepths == thisDepths[1])) {
+    if(any(!is.finite(thisDepths)) || all(thisDepths == thisDepths[1])) {
       goodTri[i] = FALSE
     }
     if(any(!fields::in.poly(triCorners[[i]][,1:2], extent))) {
@@ -283,8 +294,15 @@ getGeomFromMesh = function(mesh, extent, maxDepth=30, method=c("NN", "kernel")) 
 
 # simple nearest neighbor algorithm
 # assume pts is in utm10
-# res: if method=="kernel
-getPointDepths = function(pts, maxDepth=Inf, method=c("NN", "kernel"), res=1) {
+# Inputs:
+# pts: nx2 matrix of longitudes and latitudes at which to calculate fault depths
+# maxDepth: maximum depth of fault geometry points used to interpolate between. 
+#           should be slightly larger (e.g. 1km) larger than the depths of pts 
+#           so calculated depths at pts is interpolated rather than extrapolated
+# method: either linear interpolation (default), nearest neighbor estimate, or Gaussian kernel smoother.
+#         Just use a linear interpolator here, others were for experiments...
+# # res: if method=="kernel", resolution of grid approximating points
+getPointDepths = function(pts, maxDepth=Inf, method=c("linear", "NN", "kernel"), res=1) {
   method = match.arg(method)
   
   # first load in the Slab 2.0 geometry
@@ -300,14 +318,6 @@ getPointDepths = function(pts, maxDepth=Inf, method=c("NN", "kernel"), res=1) {
   goodI = abs(depths) <= (maxDepth + 1)
   xy = xy[goodI,]
   depths = depths[goodI]
-  
-  # system.time(out <- interp::interp(x=xy[,1], y=xy[,2], z=depths, 
-  #                                   xo=pts[,1], yo=pts[,2], output="points", 
-  #                                   method="akima"))
-  # 
-  # system.time(out <- interp::interp(x=xy[,1], y=xy[,2], z=depths, 
-  #                                   xo=pts[,1], yo=pts[,2], output="points", 
-  #                                   method="akima"))
   
   # Things to try:
   #   compactly supported covariance function
@@ -373,18 +383,32 @@ getPointDepths = function(pts, maxDepth=Inf, method=c("NN", "kernel"), res=1) {
     distMat = rdist(pts, xy)
     nearestInds = apply(distMat, 1, which.min)
     return(depths[nearestInds])
+  } else if(method == "linear") {
+    totTime = system.time(out <- interp::interp(x=xy[,1], y=xy[,2], z=depths,
+                                      xo=pts[,1], yo=pts[,2], output="points",
+                                      method="linear"))[3]
+    # totTime
+    # 2.085 
+    
+    return(out$z)
   }
 }
 
 
 # old fault geometry code ----
+# no longer used except for rectangular faults
 
+# rows: table where each row is a rectangular subfault
+# nDown: num division in dip direction
+# nStrike: num divisions in strike direction
 divideFault = function(rows, nDown=3, nStrike=4) {
   subFaults = apply(rows, 1, divideSubfault, nDown=nDown, nStrike=nStrike)
   do.call("rbind", subFaults)
 }
 
-
+# row: row of a table. Described a rectangular subfault
+# nDown: num division in dip direction
+# nStrike: num divisions in strike direction
 divideSubfault = function(row, nDown=3, nStrike=4) {
   if(!is.list(row))
     row = as.list(row)

@@ -151,11 +151,13 @@ okadaSubfaultRect = function(row, x, y, slip=0, rake=90, poisson=0.25, inds=NULL
   # Convert distance from (X,Y) to (x_bottom,y_bottom) from degrees to
   # meters:
   # LAT2METER = 111133.84012073894 #/10^3
-  # xx = LAT2METER * cos(DEG2RAD * Y) * (X - x_bottom)   
+  # xx = LAT2METER * cos(DEG2RAD * Y) * (X - x_bottom)
   # yy = LAT2METER * (Y - y_bottom)
-  out = projCSZ(cbind(c(X - x_bottom)   , c(Y - y_bottom)), units="m")
-  xx = matrix(out[,1], nrow=nrow(X))
-  yy = matrix(out[,2], nrow=nrow(Y))
+  
+  origin = projCSZ(cbind(x_bottom, y_bottom), units="m")
+  out = projCSZ(cbind(c(X), c(Y)), units="m")
+  xx = matrix(out[,1], nrow=nrow(X)) - origin[1]
+  yy = matrix(out[,2], nrow=nrow(Y)) - origin[2]
   
   # if user only wants a subset of seaDefs given by inds, subset now to save time
   if(!is.null(inds)) {
@@ -385,9 +387,11 @@ calcGeom = function(subfault) {
 
 # JP's documentation:
 # fault: a list of subfaults. See okadaSubfaultTri for details
-# x, y: x, y coordinates of locations at which to calculate surface deformation
+# x, y: longitude and latitude coordinates of locations at which to calculate 
+#       surface deformation
 # slip: a vector of coseismic slips, 1 for each subfault
-# rake: a vector of rakes, 1 for each subfault
+# rake: a vector of rakes (direction of the slip), 1 for each subfault. Default 
+#       is 90, which is directly downdip
 okadaTri = function(fault, x, y, 
                     slip=rep(1, length(fault)), 
                     rake=rep(90, length(fault))) {
@@ -425,15 +429,16 @@ okadaTri = function(fault, x, y,
 #     fix_orientation: whether the orientation is fixed. Set by 
 #                      calculate_geometry_triangles
 #     corners: 3x3 matrix where each row is (lon, lat, depth) of a single corner
-#     centers: 
-#     lon: longitude TODO
-#     lat: latitude TODO
-#     depth: depth TODO
-#     strike: strike TODO
-#     dip: dip TODO
+#     centers: not used
+#     lon: longitude of centroid
+#     lat: latitude of centroid
+#     depth: depth of centroid
+#     strike: strike of subfault
+#     dip: dip of subfault
 #     slip: average coseismic slip for the subfault
-#     rake: rake of the subfault
-# x, y: x, y coordinates of locations at which to calculate surface deformation
+#     rake: rake of the subfault, direction of slip. If NULL defaults to 90, or downdip
+# x, y: longitude and latitude coordinates of locations at which to calculate 
+#       surface deformation
 # NOTE: if subfault$rake not set, defaults to 90
 okadaSubfaultTri = function(subfault, x, y) {
   
@@ -536,6 +541,7 @@ okadaSubfaultTri = function(subfault, x, y) {
     Zb1 = out$Zb1
     Zb2 = out$Zb2
     Zb3 = out$Zb3
+    # browser()
     
     out = get_angular_dislocations_surface(subfault, Y1,Y2,Y3,beta,Odepth)
     w11 = out$v11
@@ -549,9 +555,10 @@ okadaSubfaultTri = function(subfault, x, y) {
     w33 = out$v33
     
     if(any(is.na(w11))) {
-      browser()
+      browser() # there shouldn't be any na's
     }
     
+    # browser()
     out = coord_transform(subfault, w11,w12,w13,w21,w22,w23,w31,w32,w33,alpha)
     w11 = out$v11
     w12 = out$v12
@@ -564,7 +571,7 @@ okadaSubfaultTri = function(subfault, x, y) {
     w33 = out$v33
     
     if(any(is.na(w11))) {
-      browser()
+      browser() # there shouldn't be any na's
     }
     
     v11 = v11 + sgn*w11
@@ -587,7 +594,7 @@ okadaSubfaultTri = function(subfault, x, y) {
   dX = -v11*burgersv[1] - v12*burgersv[2] + v13*burgersv[3]
   dY = -v21*burgersv[1] - v22*burgersv[2] + v23*burgersv[3]
   dZ = -v31*burgersv[1] - v32*burgersv[2] + v33*burgersv[3]
-  
+  # browser()
   dtopo = list()
   dtopo$X = X1
   dtopo$Y = X2
@@ -626,7 +633,7 @@ get_leg_angles = function(subfault) {
   # # y[:,2] = - abs(x[:,2])    # force sign
   # y[,1] = LAT2METER * cos( DEG2RAD*subfault$lat)*x[,1]
   # y[,2] = LAT2METER * x[,2]
-  y[,1:2] = projCSZ(y[,1:2], units="m")
+  y[,1:2] = projCSZ(x[,1:2], units="m")
   y[,3] = - abs(x[,3])    # force sign
   
   # v_list = [y[0,:] - y[1,:], y[1,:] - y[2,:], y[2,:] - y[0,:]]
@@ -847,7 +854,7 @@ calculate_geometry_triangles = function(corners) {
   a = normal[1]
   b = normal[2]
   c = normal[3]
-  
+  # browser()
   #Compute strike
   # strike_deg = rad2deg(arctan(-b/a))
   RAD2DEG = 360 / (2*pi)
@@ -881,7 +888,7 @@ calculate_geometry_triangles = function(corners) {
   }
   
   if(dip_deg > 30) {
-    browser()
+    browser() # dip probably shouldn't be so large.
   }
   
   # keep strike_deg positive
@@ -952,7 +959,7 @@ calculate_geometry_triangles = function(corners) {
 # 
 # :Output:
 #   
-#   - tuple (y,z,ybar,zbar)
+# - tuple (y,z,ybar,zbar)
 # - each numpy array of same shape as x
 # containing *angular* coordinates as well as its mirrored image
 get_halfspace_coords = function(subfault,X1,X2,X3,alpha,beta,Olong,Olat,Odepth) {
@@ -962,12 +969,17 @@ get_halfspace_coords = function(subfault,X1,X2,X3,alpha,beta,Olong,Olat,Odepth) 
   
   # convert lat/long to meters
   DEG2RAD = 2*pi/360
+  
+  # use the old projection system, since Olong and Olat origin makes new 
+  # projection unusable
   # LAT2METER = 111133.84012073894 #/10^3
   # X1 = LAT2METER * cos( DEG2RAD*subfault$lat ) * (X1 - Olong)
   # X2 = LAT2METER * (X2 - Olat)
-  out = projCSZ(cbind(c(X1 - Olong), c(X2 - Olat)), units="m")
-  X1 = matrix(out[,1], nrow=nrow(X1))
-  X2 = matrix(out[,2], nrow=nrow(X2))
+  
+  origin = projCSZ(cbind(Olong, Olat), units="m")
+  out = projCSZ(cbind(c(X1), c(X2)), units="m")
+  X1 = matrix(out[,1], nrow=nrow(X1)) - origin[1]
+  X2 = matrix(out[,2], nrow=nrow(X2)) - origin[2]
   
   # Y1 = numpy.zeros(dims)       # yi-coordinates
   # Y2 = numpy.zeros(dims)       # yi-coordinates

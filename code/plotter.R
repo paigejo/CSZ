@@ -1,4 +1,45 @@
 
+# Plots values over a triangulated fault geometry
+# faultGeom: output of getFullFaultGeom
+# plotVar: If null, plot the areal boundaries only. 
+#          If numeric, plot plotVar values for each area.
+#          If character, plot variable from faultGeom with the given name
+# zlim: range of the response
+# project: if FALSE, plot with lon/lat coordinates.  Otherwise, plot with projected coords 
+#          using myProjection function.  This can be used when plotting the projected `easting' 
+#          and `northing' variables for instance.
+# cols: color vector representing the color scale
+# legend.mar, legend.args, n.ticks: see ?image.plot
+# plotArgs: arguments to the plot function
+# scaleFun, scaleFunInverse: how to scale the color scale and its inverse. For example, log and exp
+# asp: aspect ratio
+# addColorBar: whether to add the color bar/legend
+# forceColorsInRange: whether or not to force colors in the plotted range. Useful if 
+#   you have a value outside of the range or that is NA after being transformed via the scale 
+#   that you still want to plot at the edge of the color scale
+# crosshatchNADensity: Adds crosshatching for areas with NA values. See ?polygon density argument.
+# # min.n: approximate number of ticks in color scale. See ?pretty
+# myProjection: a map projection function taking a 2 column matrix of coordinates 
+#   and projects them.
+# ...: arguments to polygon function
+plotFaultDatTri = function(faultGeom, plotVar=NULL, zlim=NULL, project=FALSE, cols=tim.colors(), 
+                           legend.mar=7, new=TRUE, plotArgs=NULL, main=NULL, xlim=NULL, xlab=NULL, scaleFun = function(x) {x}, scaleFunInverse = function(x) {x}, 
+                           ylim=NULL, ylab=NULL, n.ticks=5, min.n=5, ticks=NULL, tickLabels=NULL, asp=1, legend.width=1.2, addColorBar=TRUE, 
+                           legendArgs=list(), leaveRoomForLegend=TRUE, forceColorsInRange=FALSE, 
+                           crosshatchNADensity=10, myProjection=NULL, ...) {
+  
+  polyList = lapply(faultGeom, function(x) {x$corners})
+  if(!is.null(plotVar) && is.character(plotVar)) {
+    # if plotVar is a variable name, extract the variable from the fault geometry
+    plotVar = sapply(faultGeom, function(x) {x[[plotVar]]})
+  }
+  plotPolyDat(polyList=polyList, plotVar=plotVar, zlim=zlim, project=project, cols=cols, 
+              legend.mar=legend.mar, new=new, plotArgs=plotArgs, main=main, xlim=xlim, xlab=xlab, scaleFun=scaleFun, scaleFunInverse=scaleFunInverse, 
+              ylim=ylim, ylab=ylab, n.ticks=n.ticks, min.n=min.n, ticks=ticks, tickLabels=tickLabels, asp=asp, legend.width=legend.width, addColorBar=addColorBar, 
+              legendArgs=legendArgs, leaveRoomForLegend=leaveRoomForLegend, forceColorsInRange=forceColorsInRange, 
+              crosshatchNADensity=crosshatchNADensity, myProjection=myProjection, ...)
+}
+
 # Same as plotMapDat in genericSpatialPlottingFunctions, but plots values over list 
 # of polygons instead of shapefile data.
 # polyList: a list of matrices defining points forming polygons. If points are 3D or above, 
@@ -871,4 +912,37 @@ plotSurfGoogleMaps = function(gpsDat, plotVar=gpsDat$Depth, varRange=NULL, plotD
   p1
 }
 
-
+getFaultPolygons = function(fault=csz, faultCornerTable=NULL) {
+  if(length(unique(fault$Fault)) != length(fault$Fault)) {
+    fault$Fault = 1:nrow(fault)
+  }
+  
+  calcSubfaultPolygon = function(subfault) {
+    tmp = subfault
+    if(!is.list(subfault)) {
+      tmp = matrix(subfault, ncol=length(subfault))
+      colnames(tmp) = names(subfault)
+      tmp = data.frame(tmp)
+    }
+    subfault = tmp
+    
+    if(is.null(faultCornerTable))
+      subFaultPoly = calcGeom(subfault)$corners[,1:2]
+    else
+      subFaultPoly = rbind(c(subfault$topLeftX, subfault$topLeftY), 
+                           c(subfault$topRightX, subfault$topRightY), 
+                           c(subfault$bottomRightX, subfault$bottomRightY), 
+                           c(subfault$bottomLeftX, subfault$bottomLeftY))
+    return(cbind(subfault$Fault, subFaultPoly))
+  }
+  
+  # faultPolys = apply(fault, 1, calcSubfaultPolygon)
+  subfaultList = list()
+  for(i in 1:nrow(fault)) {
+    subfaultList = c(subfaultList, list(fault[i,]))
+  }
+  faultPolys = lapply(subfaultList, calcSubfaultPolygon)
+  faultPolys = do.call("rbind", faultPolys)
+  faultPolys = data.frame(list(Fault=faultPolys[,1], longitude=faultPolys[,2], latitude=faultPolys[,3]))
+  return(faultPolys)
+}
